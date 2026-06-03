@@ -1,0 +1,12 @@
+# Profiles to scrape for publications. Add lab members here.
+# `key`    — stable id (used for the state file name); keep it short + ascii.
+# `member` — display name (informational).
+# `url`    — the page to scrape (Google Scholar citations profile).
+# `mode`   — optional ujin scrape mode override (default: article).
+sources:
+  - key: fels
+    member: Sidney Fels
+    url: https://scholar.google.com/citations?user=bf7ilxMAAAAJ&hl=en&oi=ao
+  - key: ashjaee
+    member: Nima Ashjaee
+    url: https://scholar.google.com/citations?user=8XQ0NpIAAAAJ&hl=en

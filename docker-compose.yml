@@ -1,0 +1,55 @@
+# HCT backend: the ujin scrape service + the one-shot hct-manager.
+#
+# Typical use (poll once, on demand):
+#   1. cp .env.example .env                 # then add your OPENROUTER_API_KEY + SB_*
+#   2. docker compose up -d ujin            # start the scrape service (:8901)
+#   3. docker compose run --rm hct-manager run        # update Supabase
+#      docker compose run --rm hct-manager run --force # ignore fingerprints
+#
+# Google Scholar is anti-bot. The default `ujin` build is pure-python (fast) and
+# may get blocked; for reliable scraping use the obscura renderer instead:
+#   docker compose --profile render up -d ujin-render
+#   docker compose run --rm -e UJIN_URL=http://ujin-render:8901 hct-manager run
+# (first `ujin-render` build is slow — it compiles the Rust/V8 renderer.)
+
+services:
+  # ujin scrape service — pure-python (fast build, HTTP-only, degrades gracefully).
+  ujin:
+    build:
+      context: ./backend/ujin
+      target: ujin
+    image: ujin:latest
+    command: ["scrape-serve", "--host", "0.0.0.0", "--port", "8901"]
+    ports:
+      - "8901:8901"
+    init: true          # reap any browser/obscura <defunct> subprocesses
+    restart: unless-stopped
+
+  # ujin scrape service WITH the obscura headless renderer baked in (slow first
+  # build). Use for JS-heavy / anti-bot pages like Google Scholar.
+  ujin-render:
+    profiles: ["render"]
+    build:
+      context: ./backend/ujin
+      target: ujin-full
+    image: ujin:full
+    command: ["scrape-serve", "--host", "0.0.0.0", "--port", "8901"]
+    init: true
+    restart: unless-stopped
+
+  # hct-manager — one-shot generator. Runs to completion and exits.
+  hct-manager:
+    build:
+      context: ./backend
+    image: hct-manager:latest
+    env_file:
+      - .env
+    environment:
+      - UJIN_URL=${UJIN_URL:-http://ujin:8901}
+      - HCT_DATA_DIR=/app/data
+    volumes:
+      - ./backend/data:/app/data            # sources, templates, state, inputs
+      - ./frontend:/app/frontend            # index.html (read by migrate-content)
+    depends_on:
+      - ujin
+    restart: "no"

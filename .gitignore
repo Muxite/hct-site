@@ -1,0 +1,15 @@
+# secrets
+.env
+keys.env
+
+# python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# generated runtime state + experiment artifacts
+backend/data/state/
+experiments/runs/

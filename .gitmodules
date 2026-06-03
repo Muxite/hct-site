@@ -1,0 +1,3 @@
+[submodule "backend/ujin"]
+	path = backend/ujin
+	url = git@github.com:Muxite/ujin.git
