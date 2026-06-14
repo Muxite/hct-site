@@ -7,8 +7,10 @@ You do **not** need this repo, the backend, the scraper, or any secret. The data
 is **read-only** and protected by row-level security, so the key below is safe to
 ship in your app.
 
-> The existing `frontend/` (static HTML + `hct-render/`) is one example consumer.
-> You can ignore it entirely and start fresh; the database is the only contract.
+> The `frontend/` in this repo (a **React + Vite** app) is the reference
+> consumer — it reads these tables with the publishable key via Vite env vars
+> (`VITE_SB_URL` / `VITE_SB_PUBLISHABLE_KEY`). You can ignore it entirely and
+> start fresh in any stack; the database is the only contract.
 
 ---
 
@@ -108,15 +110,17 @@ const { data } = await sb.from("publications")
 ```
 
 ### `timeline`
-The 5 most recent publications, for a "Latest" / highlights strip.
+The **full publication history**, newest first — the site's centerpiece (group
+it by year to render). One row per publication.
 | column | type | notes |
 | ------ | ---- | ----- |
+| `slug` | string \| null | -> `publications.slug` (for a detail link) |
 | `title` | string | |
 | `authors` | string[] | |
 | `year` | number | |
 | `date_label` | string | display label, e.g. `"2022"` |
-| `blurb` | string \| null | AI-written, 1–2 sentences |
-| `position` | number | `0` = newest |
+| `blurb` | string \| null | AI-written, 1–2 sentences (often empty for older papers) |
+| `position` | number | `0` = newest, contiguous |
 
 ```js
 const { data } = await sb.from("timeline").select("*").order("position");
@@ -131,19 +135,27 @@ const { data } = await sb.from("people").select("*").order("sort_order");
 
 ### `research`
 `title`, `tagline` (string|null), `description` (string|null, AI), `link`,
-`image`, `sort_order`.
+`image`, `kind` (`current` \| `archived`), `sort_order`.
 ```js
 const { data } = await sb.from("research").select("*").order("sort_order");
 ```
 
 ### `site_content`
-Key/value blurbs for the prose sections. `key` (string), `value` (object:
-`{ title, text }`). Available keys: `vision`, `innovation`, `contact`,
-`land_acknowledgment`, `edi`, `sponsors`, `opportunities`.
+Key/value boilerplate (sourced from the backend `site.yaml`). `key` (string),
+`value` (jsonb object).
+- Prose sections — `value` is `{ title, text }`. Keys: `vision`, `innovation`,
+  `contact`, `land_acknowledgment`, `edi`, `sponsors`, `opportunities`.
+- `site_meta` — the masthead: `value` is `{ title, subtitle, tagline, nav[] }`.
 ```js
+// one section
 const { data } = await sb.from("site_content")
   .select("value").eq("key", "vision").maybeSingle();
 // data.value.title, data.value.text
+
+// everything in one round trip (what the reference app does)
+const rows = await sb.from("site_content").select("key,value");
+const content = Object.fromEntries(rows.data.map((r) => [r.key, r.value]));
+// content.site_meta.title, content.vision.text, ...
 ```
 
 ---

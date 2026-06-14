@@ -49,9 +49,16 @@ def slug_for(authors: list[str], year: int, title: str) -> str:
     return f"{last}{year}-{title_part}".strip("-")
 
 
+# Curly/typographic punctuation -> ASCII, applied before slugifying. NFKD does
+# NOT decompose these, so "It's" and "It’s" used to produce different slugs and
+# the same paper got two rows (dedupe is by slug).
+_PUNCT_MAP = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-"})
+
+
 def _slugify(text: str) -> str:
     """Lowercase ASCII kebab-case. Drops accents and non-alphanumerics."""
 
+    text = text.translate(_PUNCT_MAP)
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     text = re.sub(r"[^a-zA-Z0-9]+", "-", text.lower())
     return text.strip("-")
@@ -81,6 +88,18 @@ class Publication(BaseModel):
             raise ValueError("must be a non-empty string")
         return v.strip()
 
+    @field_validator("authors", mode="before")
+    @classmethod
+    def _coerce_authors(cls, v):
+        # LLMs sometimes emit the author list as a single delimited string
+        # ("N Ashjaee, J Street, S Fels"); split it back into a list. An empty
+        # list/string still fails the cleaning check below (-> repair), so the
+        # "at least one author" contract is preserved.
+        if isinstance(v, str):
+            parts = re.split(r"\s*(?:;| and |,)\s*", v)
+            return [p.strip() for p in parts if p.strip()]
+        return v
+
     @field_validator("authors")
     @classmethod
     def _authors_clean(cls, v: list[str]) -> list[str]:
@@ -88,6 +107,32 @@ class Publication(BaseModel):
         if not cleaned:
             raise ValueError("at least one non-empty author is required")
         return cleaned
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _coerce_type(cls, v):
+        # Map free-text the LLM may emit ("Journal Article", "Conference paper",
+        # "arXiv preprint") onto the closest BibTeX-ish bucket; default misc.
+        if v is None or v == "":
+            return PubType.misc
+        if not isinstance(v, str):
+            return v
+        s = v.strip().lower()
+        try:
+            return PubType(s)
+        except ValueError:
+            pass
+        for needle, t in (
+            ("proceed", PubType.inproceedings), ("conf", PubType.inproceedings),
+            ("arxiv", PubType.preprint), ("preprint", PubType.preprint),
+            ("journal", PubType.article), ("article", PubType.article),
+            ("chapter", PubType.incollection), ("book", PubType.book),
+            ("thesis", PubType.thesis), ("dissert", PubType.thesis),
+            ("tech", PubType.techreport), ("report", PubType.techreport),
+        ):
+            if needle in s:
+                return t
+        return PubType.misc
 
     @field_validator("link")
     @classmethod
@@ -168,7 +213,7 @@ class TimelineEntry(BaseModel):
 
 
 class Person(BaseModel):
-    """A lab member (parsed from the People tiles)."""
+    """A lab member (synced from ``people.yaml``)."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -185,7 +230,7 @@ class Person(BaseModel):
 
 
 class ResearchProject(BaseModel):
-    """A research area/project (parsed from the Research tiles)."""
+    """A research area/project (synced from ``research.yaml``)."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -194,6 +239,7 @@ class ResearchProject(BaseModel):
     description: str | None = None
     link: str | None = None
     image: str | None = None
+    kind: str = "current"  # 'current' | 'archived'
     sort_order: int = 0
 
     def row(self) -> dict:

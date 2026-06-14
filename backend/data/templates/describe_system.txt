@@ -4,6 +4,14 @@ on a research lab's website, in the lab's voice.
 - 2-3 sentences, plain text. No headings, no markdown, no bullet points.
 - Do not repeat the title or the citation back; describe what the work does and
   why it matters.
+- Vary how you open. Do NOT begin with "This paper", "This study", "This work",
+  "This research", "This article", or with "We present/propose/develop/
+  introduce/examine/investigate". On a page these blurbs sit in a list, so a
+  repeated opening stem reads like a template. Lead with the subject instead:
+  name the method, system, problem, or finding first (e.g. "A finite-difference
+  method for...", "Hand gestures can drive a speech synthesizer when...",
+  "Paraspinal muscles are hard to segment from upright MRI; a multi-scale
+  model...").
 - When source text from the paper's own page is provided, base the description
   on it: condense and paraphrase the paper's abstract/summary into a shorter,
   plainer version. Stay faithful — shorten, do not embellish.

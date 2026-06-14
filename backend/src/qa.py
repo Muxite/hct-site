@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 from pydantic import ValidationError
 
-from src.content import _SECTION_KEYS, parse_people, publications_block_text
+from src.content import _SECTION_KEYS, publications_block_text
 from src.models import Publication
 
 # Severity levels, ordered most-to-least urgent for rendering.
@@ -98,12 +98,16 @@ class StaticSource:
     people_names: list[str] = field(default_factory=list)
 
 
-def build_source(index_html: str) -> StaticSource:
-    """Parse the static site HTML into a :class:`StaticSource` (reuses content.py)."""
+def build_source(
+    index_html: str, *, people_names: list[str] | None = None
+) -> StaticSource:
+    """Build the cross-check source: publication text from the static page,
+    people names from ``people.yaml`` (the roster's source of truth) when the
+    caller has them."""
 
     return StaticSource(
         pub_text=publications_block_text(index_html).lower(),
-        people_names=[p.name for p in parse_people(index_html)],
+        people_names=list(people_names or []),
     )
 
 
@@ -162,8 +166,13 @@ def _schema_checks(rows: dict[str, list[dict]]):
         yield Finding(ERROR, "schema", "timeline", "*", "duplicate position values")
     elif positions and sorted(positions) != list(range(len(positions))):
         yield Finding(WARN, "schema", "timeline", "*", f"positions not contiguous from 0: {sorted(positions)}")
-    if tl and len(tl) != 5:
-        yield Finding(WARN, "schema", "timeline", "*", f"{len(tl)} entries (expected 5)")
+    # The timeline mirrors the full publication history (newest first); flag only
+    # a count mismatch against publications, not a fixed expected size.
+    if tl and pubs and len(tl) != len(pubs):
+        yield Finding(
+            WARN, "schema", "timeline", "*",
+            f"{len(tl)} entries but {len(pubs)} publications (expected one per paper)",
+        )
 
 
 # --- completeness ----------------------------------------------------------
@@ -179,8 +188,10 @@ def _completeness_checks(rows: dict[str, list[dict]]):
 
     for row in rows.get("timeline", []):
         ref = _timeline_ref(row)
+        # The full history won't have a blurb for every historical paper — info,
+        # not a warning. A missing slug link, though, breaks the paper detail link.
         if _blank(row.get("blurb")):
-            yield Finding(WARN, "completeness", "timeline", ref, "no blurb (AI text missing)")
+            yield Finding(INFO, "completeness", "timeline", ref, "no blurb (AI text missing)")
         if _blank(row.get("slug")):
             yield Finding(WARN, "completeness", "timeline", ref, "no slug link to a publication")
 
@@ -279,10 +290,10 @@ def _source_checks(rows: dict[str, list[dict]], source: StaticSource):
         db_names = {_norm(str(row.get("name") or "")) for row in rows.get("people", [])}
         for row in rows.get("people", []):
             if _norm(str(row.get("name") or "")) not in page_names:
-                yield Finding(WARN, "source", "people", row.get("name") or "?", "person not on static page")
+                yield Finding(WARN, "source", "people", row.get("name") or "?", "person not in people.yaml")
         for name in source.people_names:
             if _norm(name) not in db_names:
-                yield Finding(INFO, "source", "people", name, "person on page but not in DB")
+                yield Finding(INFO, "source", "people", name, "person in people.yaml but not in DB")
 
 
 # --- report ----------------------------------------------------------------

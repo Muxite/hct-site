@@ -29,8 +29,10 @@ create table if not exists public.publications (
 create index if not exists publications_year_idx on public.publications (year desc);
 
 -- ---------------------------------------------------------------------------
--- timeline: a small "Latest" strip — the 5 most recent publications with an
--- AI blurb. Year-based dates (Scholar gives us year only).
+-- timeline: the full publication history, newest first (the site's centerpiece,
+-- grouped by year in the frontend). Each entry carries an optional AI blurb
+-- (reused from publications.description). Year-based dates (the CV/Scholar give
+-- us year only). Rebuilt wholesale on every run.
 -- ---------------------------------------------------------------------------
 create table if not exists public.timeline (
   id         uuid primary key default gen_random_uuid(),
@@ -61,7 +63,7 @@ create table if not exists public.people (
 create index if not exists people_sort_idx on public.people (sort_order);
 
 -- ---------------------------------------------------------------------------
--- research: research areas/projects (parsed from Research tiles; AI fills the
+-- research: research areas/projects (synced from research.yaml; AI fills the
 -- blank taglines into a longer description).
 -- ---------------------------------------------------------------------------
 create table if not exists public.research (
@@ -71,9 +73,21 @@ create table if not exists public.research (
   description text,                            -- AI-written when missing
   link        text,
   image       text,
+  kind        text not null default 'current', -- 'current' | 'archived'
   sort_order  int  not null default 0
 );
 create index if not exists research_sort_idx on public.research (sort_order);
+
+-- Migration (run in the SQL editor on projects created before research.kind
+-- existed): projects gain a current/archived kind for the "Past projects"
+-- group, mirroring people.kind.
+alter table public.research
+  add column if not exists kind text not null default 'current';
+alter table public.research
+  drop constraint if exists research_kind_check;
+alter table public.research
+  add constraint research_kind_check check (kind in ('current', 'archived'));
+create index if not exists research_kind_idx on public.research (kind);
 
 -- ---------------------------------------------------------------------------
 -- site_content: key/value store for free-text sections (vision, innovation,

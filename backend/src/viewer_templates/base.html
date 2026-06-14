@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HCT data viewer{% block title %}{% endblock %}</title>
+  <style>
+    :root { --line: #d9d6cf; --ink: #1d1c1a; --muted: #6b6862; --accent: #7a5cff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+           color: var(--ink); background: #faf9f6; }
+    header { border-bottom: 1px solid var(--line); padding: 12px 20px;
+             display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+    header .brand { font-weight: 700; }
+    header nav a { color: var(--muted); text-decoration: none; margin-right: 12px; }
+    header nav a:hover, header nav a.active { color: var(--accent); }
+    main { padding: 20px; }
+    h1 { font-size: 18px; margin: 0 0 16px; }
+    table.grid { border-collapse: collapse; width: 100%; background: #fff;
+                 border: 1px solid var(--line); }
+    table.grid th, table.grid td { border: 1px solid var(--line); padding: 6px 9px;
+                 text-align: left; vertical-align: top; }
+    table.grid th { background: #f0eee9; position: sticky; top: 0; }
+    table.grid td { max-width: 360px; overflow: hidden; text-overflow: ellipsis;
+                 white-space: nowrap; }
+    table.grid td.actions { white-space: nowrap; }
+    a { color: var(--accent); }
+    .muted { color: var(--muted); }
+    .flash { background: #e7ffe7; border: 1px solid #9adb9a; padding: 8px 12px;
+             margin-bottom: 16px; }
+    .error { background: #ffe7e7; border: 1px solid #db9a9a; padding: 8px 12px;
+             margin-bottom: 16px; }
+    form.edit label { display: block; margin: 12px 0 4px; font-weight: 700; }
+    form.edit input[type=text], form.edit textarea { width: 100%; max-width: 720px;
+             font: inherit; padding: 6px 8px; border: 1px solid var(--line); }
+    form.edit textarea { min-height: 120px; }
+    .btn { display: inline-block; padding: 6px 12px; border: 1px solid var(--accent);
+           background: var(--accent); color: #fff; text-decoration: none; cursor: pointer;
+           font: inherit; border-radius: 3px; }
+    .btn.ghost { background: #fff; color: var(--accent); }
+    .btn.danger { border-color: #c0392b; color: #c0392b; background: #fff; }
+    .toolbar { margin-bottom: 14px; display: flex; gap: 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="brand">HCT data viewer</span>
+    <nav>
+      <a href="{{ url_for('overview') }}">overview</a>
+      {% for name in ['publications','timeline','people','research','site_content'] %}
+        <a href="{{ url_for('table_view', table=name) }}">{{ name }}</a>
+      {% endfor %}
+    </nav>
+    <span class="muted" style="margin-left:auto">read + edit · localhost</span>
+  </header>
+  <main>
+    {% set msg = request.query_params.get('msg') %}
+    {% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

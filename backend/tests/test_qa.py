@@ -61,10 +61,26 @@ def test_timeline_dangling_slug_is_error():
     assert errs and "no matching publication" in errs[0].message
 
 
-def test_timeline_count_not_five_warns():
-    rows = {"timeline": [{"slug": None, "title": "x", "position": 0}]}
+def test_timeline_count_mismatch_warns():
+    # Timeline should mirror the full publication history (one entry per paper).
+    rows = {
+        "publications": [_good_pub(slug="a"), _good_pub(slug="b")],
+        "timeline": [{"slug": "a", "title": "x", "position": 0}],
+    }
     warns = [f for f in qa._schema_checks(rows) if f.severity == qa.WARN]
-    assert any("expected 5" in f.message for f in warns)
+    assert any("expected one per paper" in f.message for f in warns)
+
+
+def test_timeline_full_history_no_count_warning():
+    rows = {
+        "publications": [_good_pub(slug="a"), _good_pub(slug="b")],
+        "timeline": [
+            {"slug": "a", "title": "x", "position": 0},
+            {"slug": "b", "title": "y", "position": 1},
+        ],
+    }
+    warns = [f for f in qa._schema_checks(rows) if f.severity == qa.WARN]
+    assert not any("expected one per paper" in f.message for f in warns)
 
 
 # --- completeness ----------------------------------------------------------
@@ -139,11 +155,11 @@ def test_source_matches_publication_on_page():
     assert list(qa._source_checks(rows, src)) == []
 
 
-def test_source_flags_person_not_on_page():
+def test_source_flags_person_not_in_yaml():
     src = qa.StaticSource(people_names=["Sidney Fels"])
     rows = {"people": [{"name": "Ghost Person"}]}
     findings = list(qa._source_checks(rows, src))
-    assert any(f.table == "people" and "not on static page" in f.message for f in findings)
+    assert any(f.table == "people" and "not in people.yaml" in f.message for f in findings)
 
 
 # --- aggregation + report --------------------------------------------------
@@ -172,11 +188,13 @@ def test_report_render_has_summary_and_status():
     assert "SCHEMA & CONSISTENCY" in text
 
 
-def test_build_source_uses_content_parsers():
-    html = (
-        '<section id="people"><div class="person-tile"><strong>Sidney Fels</strong></div></section>'
-        '<main><div id="publications-static">A unified representation of control logic</div></main>'
-    )
-    src = qa.build_source(html)
+def test_build_source_combines_static_pubs_and_yaml_names():
+    html = '<main><div id="publications-static">A unified representation of control logic</div></main>'
+    src = qa.build_source(html, people_names=["Sidney Fels"])
     assert "Sidney Fels" in src.people_names
     assert "control logic" in src.pub_text
+
+
+def test_build_source_without_names_skips_people_checks():
+    src = qa.build_source("<main></main>")
+    assert src.people_names == []

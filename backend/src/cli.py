@@ -1,14 +1,15 @@
 """Command-line entry point for hct-manager.
 
-    hct-manager run [--force]          scrape -> extract -> upsert publications + timeline
-    hct-manager import-html [--max-chars N] [--no-timeline] [--no-blurbs]
-                                       extract publications from the static page (no Scholar)
-    hct-manager migrate-content [--no-ai]   parse static HTML -> people/research/site_content
+    hct-manager run [--force]          CV (+ optional Scholar) -> parse/extract -> upsert
+    hct-manager sync-content [--people PATH] [--research PATH] [--site PATH]
+                                       people.yaml/research.yaml/site.yaml -> Supabase
     hct-manager analyze-style FILE [--save]   write/print a style profile
     hct-manager describe [--all] [--fetch] [--limit N]   write lab-voice descriptions
     hct-manager qa [--out PATH] [--no-source-check] [--strict]
                                        QA report on the live Supabase data
     hct-manager health                 check the ujin scrape service
+    hct-manager viewer [--host H] [--port P] [--debug]
+                                       localhost read+edit viewer over the tables
 
 Designed to be run on demand (and exit) — no daemon, no scheduler. All site data
 is written to Supabase (the frontend reads it directly with the publishable key).
@@ -47,8 +48,25 @@ def _finalize_metrics(cfg: Config, tracker) -> None:
     )
 
 
+def _finalize_parse(cfg: Config, parse_tracker) -> None:
+    """Persist per-entry CV parse outcomes + the run summary; print the table."""
+    if parse_tracker is None or not parse_tracker.records:
+        return
+    parse_tracker.dump_jsonl(cfg.state_dir / "parse-report.jsonl")
+    parse_tracker.dump_summary(cfg.state_dir / "parse-summary.jsonl")
+    print(parse_tracker.render())
+
+
 def _make_supabase(cfg: Config) -> SupabaseClient:
     return SupabaseClient(cfg.sb_url, cfg.sb_secret_key)
+
+
+def _content_path(cfg: Config, override: str | None, filename: str) -> Path:
+    """Resolve a content YAML: explicit flag > inbox (drop folder) > inputs."""
+    if override:
+        return Path(override)
+    inbox = cfg.inbox_dir / filename
+    return inbox if inbox.exists() else cfg.inputs_dir / filename
 
 
 def _row_to_publication(row: dict):
@@ -59,14 +77,23 @@ def _row_to_publication(row: dict):
 
 def _cmd_run(args: argparse.Namespace) -> int:
     from src import orchestrate
+    from src.obscura_client import ObscuraRenderer
 
-    from src.metrics import UsageTracker
+    from src.metrics import ParseTracker, UsageTracker
 
     cfg = Config.from_env()
     tracker = UsageTracker(label="run")
+    parse_tracker = ParseTracker(label="run")
+    obscura = ObscuraRenderer(
+        cfg.obscura_bin, wait=cfg.obscura_wait, timeout=cfg.obscura_timeout
+    )
     with UjinClient(cfg.ujin_url) as ujin, _make_llm(cfg, tracker) as llm, _make_supabase(cfg) as sb:
-        result = orchestrate.run(cfg, llm=llm, ujin=ujin, supabase=sb, force=args.force)
+        result = orchestrate.run(
+            cfg, llm=llm, ujin=ujin, supabase=sb, obscura=obscura, force=args.force,
+            parse_tracker=parse_tracker,
+        )
     _finalize_metrics(cfg, tracker)
+    _finalize_parse(cfg, parse_tracker)
 
     if not result.changed:
         print(f"No changes across {len(result.sources_processed)} source(s); nothing written.")
@@ -78,82 +105,38 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_import_html(args: argparse.Namespace) -> int:
-    """Populate publications + timeline from the static page (no ujin/Scholar).
+def _cmd_sync_content(args: argparse.Namespace) -> int:
+    """Sync people.yaml + research.yaml + site.yaml into Supabase.
 
-    Useful when Google Scholar blocks the runner: the page's own
-    ``#publications-static`` list is fed through the normal extract -> validate ->
-    timeline pipeline. Input is capped (``--max-chars``, newest first) so the JSON
-    output doesn't exceed the model's token budget.
+    The YAML files are the source of truth for the roster, project list, and
+    site boilerplate (header/nav + the free-text prose sections), including
+    current/alumni and current/archived status. They're read from the drop
+    folder (``inbox/``) when present, else from the committed defaults in
+    ``inputs/``. No LLM involved.
     """
     from src import content
-    from src import timeline as timeline_mod
-    from src.describe import load_describe_system_prompt
-    from src.extract import extract_publications, load_system_prompt
-    from src.models import publication_row
-
-    from src.metrics import UsageTracker
+    from src import sync_content as sync_mod
 
     cfg = Config.from_env()
-    text = content.publications_block_text(cfg.index_html.read_text(encoding="utf-8"))
-    if not text:
-        print(f"No #publications-static block found in {cfg.index_html}.")
-        return 1
+    people_path = _content_path(cfg, args.people, "people.yaml")
+    research_path = _content_path(cfg, args.research, "research.yaml")
+    site_path = _content_path(cfg, args.site, "site.yaml")
 
-    tracker = UsageTracker(label="import-html")
-    with _make_llm(cfg, tracker) as llm, _make_supabase(cfg) as sb:
-        ps = extract_publications(
-            text,
-            llm=llm,
-            system_prompt=load_system_prompt(cfg.templates_dir),
-            max_page_chars=args.max_chars,
-        )
-        n = sb.upsert(
-            "publications",
-            [publication_row(p) for p in ps.publications],
-            on_conflict="slug",
-        )
-        msg = f"Imported {n} publications from {cfg.index_html.name}"
-        if not args.no_timeline:
-            entries = timeline_mod.build_timeline(
-                ps,
-                llm=None if args.no_blurbs else llm,
-                describe_system=load_describe_system_prompt(cfg.templates_dir),
-            )
-            sb.replace("timeline", [e.row() for e in entries], key="position")
-            msg += f" + {len(entries)} timeline entries"
-    _finalize_metrics(cfg, tracker)
-    print(msg + ".")
-    return 0
-
-
-def _cmd_migrate_content(args: argparse.Namespace) -> int:
-    from src import content
-    from src.orchestrate import load_style_profile
-
-    cfg = Config.from_env()
-    html = cfg.index_html.read_text(encoding="utf-8")
-    style_profile = load_style_profile(cfg.state_dir)
-
-    llm = None
-    try:
-        if not args.no_ai:
-            llm = _make_llm(cfg)
-        people, research, site_content = content.build_content(
-            html, llm=llm, style_profile=style_profile
-        )
-    finally:
-        if llm is not None:
-            llm.close()
+    site_content = []
+    if site_path.exists():
+        site_content = content.load_site_yaml(site_path)
 
     with _make_supabase(cfg) as sb:
-        sb.replace("people", [p.row() for p in people], key="name")
-        sb.replace("research", [r.row() for r in research], key="title")
-        sb.upsert("site_content", [c.row() for c in site_content], on_conflict="key")
+        n_people, n_research = sync_mod.sync_content(
+            people_path, research_path, supabase=sb
+        )
+        if site_content:
+            sb.upsert("site_content", [c.row() for c in site_content], on_conflict="key")
 
     print(
-        f"Migrated content: {len(people)} people, {len(research)} research, "
-        f"{len(site_content)} site_content keys."
+        f"Synced content: {n_people} people ({people_path.name}), "
+        f"{n_research} research ({research_path.name}), "
+        f"{len(site_content)} site_content keys ({site_path.name})."
     )
     return 0
 
@@ -239,9 +222,23 @@ def _cmd_qa(args: argparse.Namespace) -> int:
     with _make_supabase(cfg) as sb:
         rows = {t: sb.select(t) for t in tables}
 
+    # Legacy cross-check against a *rendered* static page (the publications-static
+    # block). The live site is now a React/Vite app, so this only runs if someone
+    # points HCT_INDEX_HTML at a real rendered snapshot — the Vite shell (no
+    # publications block) is skipped to avoid spurious "not in static page" warnings.
     source = None
     if not args.no_source_check and cfg.index_html.exists():
-        source = qa.build_source(cfg.index_html.read_text(encoding="utf-8"))
+        from src import content
+
+        html = cfg.index_html.read_text(encoding="utf-8")
+        if content.publications_block_text(html):
+            people_names: list[str] = []
+            people_path = _content_path(cfg, None, "people.yaml")
+            if people_path.exists():
+                from src.sync_content import load_people_yaml
+
+                people_names = [p.name for p in load_people_yaml(people_path)]
+            source = qa.build_source(html, people_names=people_names)
 
     report = qa.run_qa(rows, source=source, strict=args.strict, source_url=cfg.sb_url)
     text = report.render()
@@ -252,6 +249,40 @@ def _cmd_qa(args: argparse.Namespace) -> int:
     out.write_text(text, encoding="utf-8")
     print(f"\nWrote report to {out}")
     return report.exit_code
+
+
+def _cmd_viewer(args: argparse.Namespace) -> int:
+    """Serve the localhost admin viewer (read + edit) over the Supabase tables.
+
+    Not the public site — a server-rendered SQL-style view of what the agent
+    wrote, one page per table. people/research/site_content edits are written
+    back to their YAML files and re-synced; publications/timeline edits upsert
+    straight to Supabase. Needs the ``viewer`` extra (FastAPI + uvicorn).
+    """
+    try:
+        import uvicorn
+
+        from src import viewer
+    except ModuleNotFoundError:
+        print("the viewer needs the [viewer] extra — install it with: pip install -e .[viewer]")
+        return 1
+
+    cfg = Config.from_env()
+    people_path = _content_path(cfg, None, "people.yaml")
+    research_path = _content_path(cfg, None, "research.yaml")
+    site_path = _content_path(cfg, None, "site.yaml")
+
+    with _make_supabase(cfg) as sb:
+        app = viewer.create_app(
+            supabase=sb, people_path=people_path,
+            research_path=research_path, site_path=site_path,
+        )
+        print(f"HCT data viewer on http://{args.host}:{args.port}  (Ctrl+C to stop)")
+        uvicorn.run(
+            app, host=args.host, port=args.port,
+            log_level="debug" if args.debug else "info",
+        )
+    return 0
 
 
 def _cmd_health(args: argparse.Namespace) -> int:
@@ -272,24 +303,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.set_defaults(func=_cmd_run)
 
-    p_imp = sub.add_parser(
-        "import-html", help="extract publications from the static page (no Scholar) and upsert"
+    p_sync = sub.add_parser(
+        "sync-content",
+        help="sync people.yaml/research.yaml/site.yaml into Supabase",
     )
-    p_imp.add_argument(
-        "--max-chars", type=int, default=6000,
-        help="cap on page text sent to the LLM, newest first (avoids JSON output truncation)",
+    p_sync.add_argument(
+        "--people", default=None, help="path to people.yaml (default: inbox/, else inputs/)"
     )
-    p_imp.add_argument("--no-timeline", action="store_true", help="don't rebuild the timeline")
-    p_imp.add_argument(
-        "--no-blurbs", action="store_true", help="build the timeline without AI blurbs (cheaper)"
+    p_sync.add_argument(
+        "--research", default=None, help="path to research.yaml (default: inbox/, else inputs/)"
     )
-    p_imp.set_defaults(func=_cmd_import_html)
-
-    p_mig = sub.add_parser("migrate-content", help="parse static HTML into people/research/site_content")
-    p_mig.add_argument(
-        "--no-ai", action="store_true", help="skip AI enrichment (don't write research descriptions)"
+    p_sync.add_argument(
+        "--site", default=None, help="path to site.yaml (default: inbox/, else inputs/)"
     )
-    p_mig.set_defaults(func=_cmd_migrate_content)
+    p_sync.set_defaults(func=_cmd_sync_content)
 
     p_style = sub.add_parser("analyze-style", help="analyze a document's writing style")
     p_style.add_argument("path", help="path to a .docx/.txt/.md/.tex document")
@@ -325,6 +352,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_health = sub.add_parser("health", help="check the ujin scrape service")
     p_health.set_defaults(func=_cmd_health)
+
+    p_view = sub.add_parser("viewer", help="serve the localhost read+edit data viewer")
+    p_view.add_argument("--host", default="127.0.0.1", help="bind host (default: 127.0.0.1)")
+    p_view.add_argument("--port", type=int, default=8080, help="bind port (default: 8080)")
+    p_view.add_argument("--debug", action="store_true", help="uvicorn debug log level")
+    p_view.set_defaults(func=_cmd_viewer)
 
     return parser
 

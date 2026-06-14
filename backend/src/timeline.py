@@ -1,8 +1,12 @@
-"""Build the small "Latest" timeline: the N most recent publications + a blurb.
+"""Build the timeline: the lab's publication history, newest first, + a blurb.
 
-Scholar profiles only give us a publication *year*, so the timeline is
-year-based (``date_label`` = the year) — we don't fabricate a day/month. Each
-entry gets a short AI blurb in the lab's voice (reusing the describe step).
+By default this is the *full* chronological history (every publication, ordered
+year-desc) — the centerpiece of the site, grouped by year in the frontend. Pass
+``n`` to cap it (e.g. a short "Latest" strip). The CV / Scholar only give us a
+publication *year*, so the timeline is year-based (``date_label`` = the year) —
+we don't fabricate a day/month. Each entry can carry a short blurb in the lab's
+voice; in a normal ``run`` we reuse any saved ``description`` rather than calling
+the LLM for every historical paper (the ``describe`` step fills those).
 """
 
 from __future__ import annotations
@@ -17,10 +21,15 @@ class SupportsComplete(Protocol):
     def complete(self, *, system: str, user: str, **kw: Any) -> str: ...
 
 
-def most_recent(pubs: list[Publication], n: int = 5) -> list[Publication]:
-    """Return the ``n`` newest publications (by year desc, then title)."""
+def most_recent(pubs: list[Publication], n: int | None = None) -> list[Publication]:
+    """Return publications newest first (by year desc, then title).
 
-    return sorted(pubs, key=lambda p: (-p.year, p.title.lower()))[:n]
+    With ``n=None`` the *whole* set is returned (the full history); pass an
+    integer to cap it to the ``n`` newest.
+    """
+
+    ordered = sorted(pubs, key=lambda p: (-p.year, p.title.lower()))
+    return ordered if n is None else ordered[:n]
 
 
 def build_timeline(
@@ -29,12 +38,14 @@ def build_timeline(
     llm: SupportsComplete | None = None,
     style_profile: str = "",
     describe_system: str | None = None,
-    n: int = 5,
+    n: int | None = None,
 ) -> list[TimelineEntry]:
-    """Build up to ``n`` timeline entries from the publication set.
+    """Build timeline entries from the publication set, newest first.
 
-    If ``llm`` is given, a fresh blurb is written for each entry; otherwise the
-    paper's existing ``description`` (if any) is reused and no LLM is called.
+    With ``n=None`` (the default) this is the full publication history; pass an
+    integer to cap it. If ``llm`` is given, a fresh blurb is written for each
+    entry; otherwise the paper's existing ``description`` (if any) is reused and
+    no LLM is called.
     """
 
     entries: list[TimelineEntry] = []

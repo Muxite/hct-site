@@ -14,6 +14,7 @@ capped (``max_page_chars``) and the repair round-trip does not resend it.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -30,6 +31,14 @@ _DEFAULT_SYSTEM = (
 # boilerplate (nav, sidebars, "cited by", footers); the publication list sits
 # near the top, so a generous cap trims tail noise without losing entries.
 DEFAULT_MAX_PAGE_CHARS = 16000
+
+# Output budget for the JSON publication list. The client default (4096) is far
+# too small: a real profile is dozens of papers, and pretty-printed JSON for ~30
+# papers already overruns 4096 completion tokens, so the first pass was *always*
+# truncated mid-object and *always* forced the repair retry (doubling cost +
+# latency). Gemini Flash bills only the tokens it emits, so a high cap is free
+# until used. Sized for a large profile (100+ papers).
+DEFAULT_MAX_OUTPUT_TOKENS = 16384
 
 
 class SupportsComplete(Protocol):
@@ -98,11 +107,19 @@ def parse_publication_set(raw_text: str, *, fingerprints: dict[str, str] | None 
             raise ValueError(f"publication entry is not an object: {item!r}")
         data = dict(item)
         if not data.get("id"):
-            data["id"] = slug_for(
-                [a for a in (data.get("authors") or []) if isinstance(a, str)],
-                int(data["year"]),
-                str(data.get("title", "")),
-            )
+            raw_authors = data.get("authors")
+            if isinstance(raw_authors, str):  # LLM sometimes emits "A, B, C"
+                author_list = [s.strip() for s in re.split(r"\s*(?:;| and |,)\s*", raw_authors) if s.strip()]
+            else:
+                author_list = [a for a in (raw_authors or []) if isinstance(a, str)]
+            try:
+                year_int = int(data["year"])
+            except (KeyError, TypeError, ValueError):
+                year_int = None
+            if year_int is not None and author_list:
+                data["id"] = slug_for(author_list, year_int, str(data.get("title", "")))
+            # else: leave id unset -> model_validate raises a clean ValidationError
+            # (missing id/year/authors), which triggers the repair round-trip.
         pubs.append(Publication.model_validate(data))
 
     return PublicationSet(
@@ -118,13 +135,14 @@ def extract_publications(
     examples: str = "",
     fingerprints: dict[str, str] | None = None,
     max_page_chars: int = DEFAULT_MAX_PAGE_CHARS,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
 ) -> PublicationSet:
     """Run extraction end to end with one repair retry on bad output."""
 
     system = system_prompt if system_prompt is not None else _DEFAULT_SYSTEM
     user = build_user_prompt(page_text, examples=examples, max_page_chars=max_page_chars)
 
-    raw = llm.complete(system=system, user=user, label="extract")
+    raw = llm.complete(system=system, user=user, max_tokens=max_output_tokens, label="extract")
     try:
         return parse_publication_set(raw, fingerprints=fingerprints)
     except Exception as first_err:  # noqa: BLE001 — repair on any parse/validation issue
@@ -136,7 +154,9 @@ def extract_publications(
             "Return corrected JSON only, matching the required schema "
             "(the same page as before — do not ask for it again)."
         )
-        raw2 = llm.complete(system=system, user=repair_user, label="extract-repair")
+        raw2 = llm.complete(
+            system=system, user=repair_user, max_tokens=max_output_tokens, label="extract-repair"
+        )
         try:
             return parse_publication_set(raw2, fingerprints=fingerprints)
         except Exception as second_err:  # noqa: BLE001

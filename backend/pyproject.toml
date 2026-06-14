@@ -13,7 +13,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+# FastAPI powers the optional localhost admin viewer (hct-manager viewer); kept
+# out of the core deps so the container/agent stay dependency-light. dev pulls in
+# everything the test suite needs (uvicorn is runtime-only, not needed for tests;
+# httpx — used by fastapi's TestClient — is already a core dep).
+viewer = ["fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3", "python-multipart>=0.0.9"]
+dev = ["pytest>=8.0", "fastapi>=0.110", "jinja2>=3", "python-multipart>=0.0.9"]
 # Heavy, edge-only: the experiment harness + plots (experiments/). Not needed by
 # the container or the core agent.
 experiments = ["matplotlib>=3.7"]

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %} · add {{ table }}{% endblock %}
+{% block content %}
+  <h1>add {{ table }}</h1>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form class="edit" method="post" action="{{ url_for('add_apply', table=table) }}">
+    {% for f in fields %}
+      <label for="f_{{ f.name }}">{{ f.name }}{% if f.name == spec.pk %} *{% endif %}</label>
+      {% if f.textarea %}
+        <textarea id="f_{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
+      {% else %}
+        <input type="text" id="f_{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+      {% endif %}
+    {% endfor %}
+    <p class="muted">status: {% if table == 'people' %}current | alumni{% else %}current | archived{% endif %}</p>
+    <p style="margin-top:18px">
+      <button class="btn" type="submit">add</button>
+      <a class="btn ghost" href="{{ url_for('table_view', table=table) }}">cancel</a>
+    </p>
+  </form>
+{% endblock %}

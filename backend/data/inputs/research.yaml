@@ -1,0 +1,30 @@
+# Research projects — the source of truth for the site's Research section.
+# Edit this file (or drop an updated copy into the dropbox/ folder, which
+# wins), then run:  hct-manager sync-content
+#
+# status: current | archived   (archived render under "Past projects")
+# Order here is the display order.
+research:
+  - title: Brain2Speech
+    tagline: State-of-the-art brain computer interfaces and 3D biomechanical articulatory speech synthesis
+    link: https://hct.ece.ubc.ca/brain2speech/
+    image: ./Human Communication Technologies Lab_files/brain2speech.png
+    status: current
+  - title: ViDeX
+    tagline: Teaching and learning experiences with video
+    link: https://hct.ece.ubc.ca/videx-teaching-and-learning-experiences-with-video/
+    image: ./Human Communication Technologies Lab_files/videx.png
+    status: current
+  - title: Mixed Reality Platforms
+    link: https://hct.ece.ubc.ca/3d-teleview/
+    image: ./Human Communication Technologies Lab_files/mixedreality.png
+    status: current
+  - title: Biomechanical Modelling for Biomedical Applications
+    link: https://hct.ece.ubc.ca/bmodeling/
+    image: ./Human Communication Technologies Lab_files/biomedical.png
+    status: current
+  - title: ArtiSynth
+    tagline: A 3D mechanical modelling system combining multi-body and finite element simulations
+    link: https://hct.ece.ubc.ca/proj-4/
+    image: ./Human Communication Technologies Lab_files/artisynth.png
+    status: current

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Tables <span class="muted">— live from Supabase</span></h1>
+  <table class="grid">
+    <thead><tr><th>table</th><th>rows</th><th>edit mode</th><th></th></tr></thead>
+    <tbody>
+      {% for t in tables %}
+        <tr>
+          <td><a href="{{ url_for('table_view', table=t.name) }}">{{ t.name }}</a></td>
+          <td>{{ t.count }}</td>
+          <td class="muted">
+            {% if spec[t.name].edit == 'yaml' %}YAML write-back{% else %}Supabase upsert{% endif %}
+          </td>
+          <td class="actions"><a href="{{ url_for('table_view', table=t.name) }}">view →</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

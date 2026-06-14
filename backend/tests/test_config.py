@@ -71,3 +71,24 @@ def test_derived_paths_follow_data_dir():
     assert cfg.sources_file == Path("/a/sources/sources.yaml")
     assert cfg.examples_dir == Path("/a/examples")
     assert cfg.inputs_dir == Path("/a/inputs")
+    assert cfg.inbox_dir == Path("/a/inbox")
+
+
+def test_scholar_disabled_by_default():
+    cfg = Config.from_env({"OPENROUTER_API_KEY": "k"})
+    assert cfg.scholar_enabled is False
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("1", True),
+    ("true", True),
+    ("YES", True),
+    ("0", False),
+    ("false", False),
+    ("", False),
+])
+def test_scholar_enabled_env_parsing(value, expected):
+    cfg = Config.from_env(
+        {"OPENROUTER_API_KEY": "k", "HCT_SCHOLAR_ENABLED": value}
+    )
+    assert cfg.scholar_enabled is expected

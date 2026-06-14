@@ -28,10 +28,23 @@ class Config:
     openrouter_base_url: str = DEFAULT_OPENROUTER_BASE
     ujin_url: str = DEFAULT_UJIN_URL
     scrape_mode: str = "article"
+    # obscura headless renderer (binary baked into the backend image). Used to
+    # render Google Scholar profiles to text — ujin's extractors drop the table's
+    # authors/venue/year, but the rendered text carries it. Disable by clearing
+    # OBSCURA_BIN; Scholar sources are then skipped rather than mis-extracted.
+    obscura_bin: str = "obscura"
+    obscura_wait: int = 6        # seconds to let the profile's JS settle
+    obscura_timeout: int = 40
     data_dir: Path = _REPO_ROOT / "backend" / "data"
-    # Static site HTML, parsed by `migrate-content`. Overridable because in the
-    # container the package is pip-installed (so _REPO_ROOT doesn't point at the
-    # mounted source) — compose sets HCT_INDEX_HTML=/app/frontend/index.html.
+    # Google Scholar is an *optional secondary* source (the CV is primary) and
+    # is off by default — scraping it trips CAPTCHAs. Opt in per run with
+    # HCT_SCHOLAR_ENABLED=1; individual sources can still set `enabled:` in
+    # sources.yaml to override either way.
+    scholar_enabled: bool = False
+    # Optional *rendered* static page for the legacy QA cross-check (looks for a
+    # publications-static block). The live site is a React/Vite app and prose now
+    # comes from site.yaml, so this is only used if HCT_INDEX_HTML points at a real
+    # rendered snapshot; the Vite shell at this default path is ignored by QA.
     index_html: Path = _REPO_ROOT / "frontend" / "index.html"
     # Supabase is the single source of truth for site data (replaces the old
     # publications.yaml). Backend writes with the secret/service key.
@@ -59,6 +72,11 @@ class Config:
     def inputs_dir(self) -> Path:
         return self.data_dir / "inputs"
 
+    @property
+    def inbox_dir(self) -> Path:
+        """User drop folder (volume-mounted): CV docx + people/research YAML."""
+        return self.data_dir / "inbox"
+
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "Config":
         env = os.environ if environ is None else environ
@@ -78,6 +96,11 @@ class Config:
             openrouter_base_url=env.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE),
             ujin_url=env.get("UJIN_URL", DEFAULT_UJIN_URL),
             scrape_mode=env.get("HCT_SCRAPE_MODE", "article"),
+            obscura_bin=env.get("OBSCURA_BIN", "obscura"),
+            obscura_wait=int(env.get("OBSCURA_WAIT", "6")),
+            obscura_timeout=int(env.get("OBSCURA_TIMEOUT", "40")),
+            scholar_enabled=env.get("HCT_SCHOLAR_ENABLED", "").strip().lower()
+            in {"1", "true", "yes"},
             data_dir=path_env("HCT_DATA_DIR", cls.data_dir),
             index_html=path_env("HCT_INDEX_HTML", cls.index_html),
             sb_url=env.get("SB_URL", "").strip().rstrip("/"),

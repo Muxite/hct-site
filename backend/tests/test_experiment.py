@@ -74,9 +74,14 @@ def test_run_trials_aggregates_rates():
     assert report.hallucination_rate == 0.0
     assert report.avg_total_tokens == 120
     assert report.total_cost_usd == 0.0  # unknown model -> zero pricing
+    # token usage is summed for the input/output cost breakdown
+    assert report.total_prompt_tokens == 4 * 100
+    assert report.total_completion_tokens == 4 * 20
+    assert report.cost["total_cost_usd"] == 0.0  # unknown model
     text = report.render()
     assert "AGENT PERFORMANCE EXPERIMENT" in text
     assert "hallucination rate" in text
+    assert "total input tokens" in text and "total output tokens" in text
 
 
 def test_run_trials_mixed_hallucination_rate():

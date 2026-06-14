@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %} · edit {{ table }}{% endblock %}
+{% block content %}
+  <h1>edit {{ table }} <span class="muted">— {{ spec.pk }} = {{ pk_value }}</span></h1>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form class="edit" method="post" action="{{ url_for('edit_apply', table=table).include_query_params(id=pk_value) }}">
+    {% for f in fields %}
+      <label for="f_{{ f.name }}">{{ f.name }}</label>
+      {% if f.textarea %}
+        <textarea id="f_{{ f.name }}" name="{{ f.name }}">{{ f.value }}</textarea>
+      {% else %}
+        <input type="text" id="f_{{ f.name }}" name="{{ f.name }}" value="{{ f.value }}">
+      {% endif %}
+    {% endfor %}
+    <p style="margin-top:18px">
+      <button class="btn" type="submit">save</button>
+      <a class="btn ghost" href="{{ url_for('table_view', table=table) }}">cancel</a>
+    </p>
+  </form>
+{% endblock %}

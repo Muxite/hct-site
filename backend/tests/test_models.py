@@ -62,9 +62,35 @@ def test_blank_link_becomes_none():
     assert _pub(link="   ").link is None
 
 
-def test_unknown_pub_type_rejected():
+def test_slug_normalizes_curly_apostrophes():
+    # "It's" (straight) and "It’s" (curly) are the same paper -> same slug.
+    a = slug_for(["S Wu"], 2022, "It's Over There: Designing an Agent")
+    b = slug_for(["S Wu"], 2022, "It’s Over There: Designing an Agent")
+    assert a == b == "wu2022-it-s-over-there-designing-an-agent"
+
+
+def test_pub_type_coerced_from_free_text():
+    # The LLM emits human-readable type strings; map them onto the enum.
+    assert _pub(type="Journal Article").type is PubType.article
+    assert _pub(type="Conference paper").type is PubType.inproceedings
+    assert _pub(type="arXiv preprint").type is PubType.preprint
+    assert _pub(type="Book chapter").type is PubType.incollection
+    # Unrecognized / empty -> misc rather than losing the whole paper.
+    assert _pub(type="qwerty nonsense").type is PubType.misc
+    assert _pub(type="").type is PubType.misc
+
+
+def test_authors_coerced_from_delimited_string():
+    # LLM sometimes returns one string instead of a list.
+    assert _pub(authors="N Ashjaee, J Street, S Fels").authors == [
+        "N Ashjaee", "J Street", "S Fels",
+    ]
+    assert _pub(authors="Sidney Fels and Geoffrey Hinton").authors == [
+        "Sidney Fels", "Geoffrey Hinton",
+    ]
+    # An empty string still fails the non-empty contract (-> repair).
     with pytest.raises(ValidationError):
-        _pub(type="journal-thing")
+        _pub(authors="   ")
 
 
 def test_extra_fields_ignored():

@@ -25,7 +25,7 @@ import statistics
 from dataclasses import dataclass, field
 
 from src.extract import build_user_prompt, parse_publication_set
-from src.metrics import UsageTracker, estimate_cost
+from src.metrics import UsageTracker, cost_breakdown, estimate_cost
 
 
 def normalize(text: str) -> str:
@@ -63,6 +63,7 @@ def evaluate_once(
     source_norm: str,
     temperature: float = 0.0,
     max_page_chars: int = 6000,
+    max_output_tokens: int = 16384,
 ) -> TrialResult:
     """Run one extraction trial (with the same first-pass + repair logic) and measure it.
 
@@ -76,7 +77,10 @@ def evaluate_once(
         llm.tracker = tracker
 
     user = build_user_prompt(source_text, max_page_chars=max_page_chars)
-    raw = llm.complete(system=system_prompt, user=user, temperature=temperature, label="extract")
+    raw = llm.complete(
+        system=system_prompt, user=user, temperature=temperature,
+        max_tokens=max_output_tokens, label="extract",
+    )
 
     first_pass_ok = True
     ps = None
@@ -89,7 +93,8 @@ def evaluate_once(
             f"{raw.strip()}\n\nReturn corrected JSON only, matching the schema."
         )
         raw2 = llm.complete(
-            system=system_prompt, user=repair_user, temperature=temperature, label="extract-repair"
+            system=system_prompt, user=repair_user, temperature=temperature,
+            max_tokens=max_output_tokens, label="extract-repair",
         )
         try:
             ps = parse_publication_set(raw2)
@@ -148,6 +153,21 @@ class ExperimentReport:
         return statistics.mean([t.latency_s for t in self.trials]) if self.trials else 0.0
 
     @property
+    def total_prompt_tokens(self) -> int:
+        return sum(t.prompt_tokens for t in self.trials)
+
+    @property
+    def total_completion_tokens(self) -> int:
+        return sum(t.completion_tokens for t in self.trials)
+
+    @property
+    def cost(self) -> dict:
+        """Cost split into input/output: input_tokens*in_price + output_tokens*out_price."""
+        return cost_breakdown(
+            self.model, self.total_prompt_tokens, self.total_completion_tokens
+        )
+
+    @property
     def total_cost_usd(self) -> float:
         return sum(
             estimate_cost(self.model, t.prompt_tokens, t.completion_tokens) for t in self.trials
@@ -155,6 +175,7 @@ class ExperimentReport:
 
     def render(self) -> str:
         avg_pubs = statistics.mean([t.n_pubs for t in self.trials]) if self.trials else 0
+        c = self.cost
         lines = [
             "AGENT PERFORMANCE EXPERIMENT",
             f"model: {self.model}   trials: {self.n}   temperature: {self.temperature}",
@@ -166,7 +187,10 @@ class ExperimentReport:
             f"  avg papers/run       {avg_pubs:6.1f}",
             f"  avg tokens/run       {self.avg_total_tokens:6.0f}",
             f"  avg latency/run      {self.avg_latency_s:6.2f}s",
-            f"  est. total cost      ${self.total_cost_usd:.4f}",
+            "  " + "-" * 56,
+            f"  total input tokens   {self.total_prompt_tokens:8d}   (${c['input_cost_usd']:.4f})",
+            f"  total output tokens  {self.total_completion_tokens:8d}   (${c['output_cost_usd']:.4f})",
+            f"  est. total cost      ${c['total_cost_usd']:.4f}",
         ]
         halluc = sorted({t for tr in self.trials for t in tr.hallucinated_titles})
         if halluc:

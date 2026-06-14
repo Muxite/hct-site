@@ -61,3 +61,16 @@ def test_build_timeline_reuses_existing_description_without_llm():
 def test_build_timeline_caps_at_n():
     ps = _set(*[_pub(f"p{i}", 2000 + i) for i in range(10)])
     assert len(build_timeline(ps, n=5)) == 5
+
+
+def test_build_timeline_defaults_to_full_history():
+    ps = _set(*[_pub(f"p{i}", 2000 + i) for i in range(10)])
+    entries = build_timeline(ps)  # n=None -> the whole set
+    assert len(entries) == 10
+    assert [e.position for e in entries] == list(range(10))
+    assert entries[0].year == 2009  # newest first
+
+
+def test_most_recent_returns_all_when_n_none():
+    pubs = [_pub("a", 2019), _pub("b", 2023), _pub("c", 2021)]
+    assert [p.title for p in most_recent(pubs)] == ["b", "c", "a"]

@@ -1,0 +1,44 @@
+# ujin jobs for the HCT lab's Google Scholar profiles.
+#
+# Pipeline per profile:  browser (load "Show more" until exhausted)
+#                          -> chunk 20 rows/event  (bounded LLM context)
+#                          -> plugin:hct_publications  (extract -> Supabase)
+#
+# Run the jobs service with hct's plugins + package available, e.g.:
+#   UJIN_PLUGINS_DIR=/app/ujin_plugins PYTHONPATH=/app \
+#   OPENROUTER_API_KEY=... SB_URL=... SB_SEC_KEY=... \
+#   ujin jobs-serve backend/jobs/scholar.yaml
+# Needs the browser-enabled ujin build (Playwright + Chromium).
+#
+# `scholar_profile` and `hct_publications` are hct plugins (backend/ujin_plugins/).
+# Add a lab member by copying a block and changing name + user (the Scholar id).
+
+jobs:
+  - name: scholar-fels
+    source:
+      kind: "plugin:scholar_profile"
+      config:
+        user: bf7ilxMAAAAJ          # Sidney Fels
+        # url:  override if you have a non-default profile URL
+        max_clicks: 200             # safety cap on "Show more" clicks
+        timeout_ms: 180000          # overall load budget
+    transforms:
+      - kind: chunk
+        config: { size: 20 }        # 20 publications per LLM call (accuracy)
+    sinks:
+      - kind: "plugin:hct_publications"
+    schedule:
+      mode: once                    # or `adaptive` to re-harvest periodically
+
+  - name: scholar-ashjaee
+    source:
+      kind: "plugin:scholar_profile"
+      config:
+        user: 8XQ0NpIAAAAJ          # Nima Ashjaee
+    transforms:
+      - kind: chunk
+        config: { size: 20 }
+    sinks:
+      - kind: "plugin:hct_publications"
+    schedule:
+      mode: once

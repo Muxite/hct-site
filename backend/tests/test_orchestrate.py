@@ -186,3 +186,312 @@ def test_load_sources_validates(tmp_path):
     bad.write_text("sources:\n  - {member: x}\n", encoding="utf-8")
     with pytest.raises(ValueError):
         orchestrate.load_sources(bad)
+
+
+def test_load_sources_accepts_path_sources(tmp_path):
+    f = tmp_path / "s.yaml"
+    f.write_text("sources:\n  - {key: cv, path: inputs/cv.docx}\n", encoding="utf-8")
+    [src] = orchestrate.load_sources(f)
+    assert src.path == "inputs/cv.docx" and src.url is None
+
+
+# --- Scholar / obscura branch ---------------------------------------------
+
+SCHOLAR_URL = "https://scholar.google.com/citations?user=bf7ilxMAAAAJ&hl=en"
+
+
+class FakeObscura:
+    """Stand-in renderer: records the URL it was asked to render."""
+
+    def __init__(self, text="SCHOLAR PROFILE TEXT", *, ok=True):
+        self._text = text
+        self._ok = ok
+        self.rendered: list[str] = []
+
+    def available(self):
+        return self._ok
+
+    def render_text(self, url):
+        self.rendered.append(url)
+        if not self._text:
+            from src.obscura_client import ObscuraError
+            raise ObscuraError("empty render")
+        return self._text
+
+
+@pytest.fixture
+def scholar_cfg(tmp_path):
+    assets = tmp_path / "assets"
+    (assets / "sources").mkdir(parents=True)
+    (assets / "state").mkdir(parents=True)
+    (assets / "sources" / "sources.yaml").write_text(
+        f"sources:\n  - {{key: fels, member: Sidney Fels, url: '{SCHOLAR_URL}'}}\n",
+        encoding="utf-8",
+    )
+    # Scholar is opt-in: these tests exercise the *enabled* Scholar path.
+    return Config(openrouter_api_key="x", data_dir=assets, scholar_enabled=True)
+
+
+def test_scholar_source_renders_via_obscura_and_normalizes_url(scholar_cfg):
+    obs = FakeObscura()
+    llm = FakeLLM({"SCHOLAR PROFILE TEXT": FELS_PUBS})
+    sb = FakeSupabase()
+    result = orchestrate.run(
+        scholar_cfg, llm=llm, ujin=_ujin(), supabase=sb, obscura=obs,
+        state=StateStore(scholar_cfg.state_dir),
+    )
+    assert result.changed is True and result.sources_changed == ["fels"]
+    assert llm.calls == 1
+    # ujin was never consulted for the Scholar profile; obscura got a normalized URL.
+    assert len(obs.rendered) == 1
+    assert "pagesize=100" in obs.rendered[0] and "sortby=pubdate" in obs.rendered[0]
+    assert len(sb.tables["publications"]) == 2
+
+
+def test_scholar_source_skipped_when_obscura_unavailable(scholar_cfg):
+    llm = FakeLLM({"SCHOLAR PROFILE TEXT": FELS_PUBS})
+    sb = FakeSupabase()
+    result = orchestrate.run(
+        scholar_cfg, llm=llm, ujin=_ujin(), supabase=sb,
+        obscura=FakeObscura(ok=False), state=StateStore(scholar_cfg.state_dir),
+    )
+    # No render, no extraction, nothing published — never a partial/invented page.
+    assert llm.calls == 0
+    assert result.changed is False
+    assert sb.tables == {}
+
+
+# --- CV sources --------------------------------------------------------------
+
+SCRAPED_PUBS = [
+    {"title": "Shared Paper", "authors": ["Sidney Fels"], "year": 2022,
+     "type": "article", "venue": "Scholar Venue"},
+    {"title": "Fels Only", "authors": ["Sidney Fels"], "year": 2021, "type": "inproceedings"},
+]
+CV_PUBS = [
+    {"title": "Shared Paper", "authors": ["Sidney Fels"], "year": 2022,
+     "type": "article", "venue": "CV Venue"},
+    {"title": "CV Only", "authors": ["Sidney Fels"], "year": 2018, "type": "techreport"},
+]
+
+
+@pytest.fixture
+def cv_cfg(tmp_path):
+    assets = tmp_path / "assets"
+    (assets / "sources").mkdir(parents=True)
+    (assets / "state").mkdir(parents=True)
+    (assets / "inputs").mkdir(parents=True)
+    (assets / "inputs" / "fels-cv.txt").write_text(
+        "biography preamble\nPublications Record\nCV PAGE TEXT", encoding="utf-8"
+    )
+    # The scraped source is listed FIRST to prove CV-wins is by source kind,
+    # not yaml order.
+    (assets / "sources" / "sources.yaml").write_text(
+        f"sources:\n"
+        f"  - {{key: fels, member: Sidney Fels, url: '{FELS_URL}'}}\n"
+        f"  - {{key: fels-cv, member: Sidney Fels, path: inputs/fels-cv.txt}}\n",
+        encoding="utf-8",
+    )
+    return Config(openrouter_api_key="x", data_dir=assets)
+
+
+def _cv_llm():
+    return FakeLLM({"CV PAGE TEXT": CV_PUBS, "FELS PAGE": SCRAPED_PUBS})
+
+
+def test_cv_source_extracts_and_cv_wins_dedupe(cv_cfg):
+    llm = _cv_llm()
+    sb = FakeSupabase()
+    result = orchestrate.run(
+        cv_cfg, llm=llm, ujin=_ujin(), supabase=sb, state=StateStore(cv_cfg.state_dir)
+    )
+    assert result.changed is True
+    assert sorted(result.sources_changed) == ["fels", "fels-cv"]
+    pubs = {r["title"]: r for r in sb.tables["publications"]}
+    assert set(pubs) == {"Shared Paper", "Fels Only", "CV Only"}
+    # Both sources are valid, but the CV is primary: on a shared paper the
+    # CV's metadata wins — even though the scraped source comes first in
+    # sources.yaml.
+    assert pubs["Shared Paper"]["venue"] == "CV Venue"
+
+
+def test_cv_run_populates_parse_tracker(cv_cfg):
+    from src.metrics import ParseTracker
+
+    tracker = ParseTracker()
+    orchestrate.run(
+        cv_cfg, llm=_cv_llm(), ujin=_ujin(), supabase=FakeSupabase(),
+        state=StateStore(cv_cfg.state_dir), parse_tracker=tracker,
+    )
+    # The fixture CV is one unparseable entry -> recovered via LLM fallback.
+    s = tracker.summary
+    assert s["total"] == 1 and s["llm"] == 1
+
+
+def test_run_result_carries_parse_summary(cv_cfg):
+    from src.metrics import ParseTracker
+
+    result = orchestrate.run(
+        cv_cfg, llm=_cv_llm(), ujin=_ujin(), supabase=FakeSupabase(),
+        state=StateStore(cv_cfg.state_dir), parse_tracker=ParseTracker(),
+    )
+    assert result.parse_summary["total"] == 1
+
+
+def test_inbox_cv_overrides_inputs_copy(cv_cfg):
+    (cv_cfg.data_dir / "inbox").mkdir()
+    (cv_cfg.data_dir / "inbox" / "fels-cv.txt").write_text(
+        "Publications Record\nINBOX CV TEXT", encoding="utf-8"
+    )
+    captured = []
+
+    class CapturingLLM(FakeLLM):
+        def complete(self, *, system, user, **kw):
+            captured.append(user)
+            return super().complete(system=system, user=user, **kw)
+
+    llm = CapturingLLM({"INBOX CV TEXT": CV_PUBS, "FELS PAGE": SCRAPED_PUBS})
+    result = orchestrate.run(
+        cv_cfg, llm=llm, ujin=_ujin(), supabase=FakeSupabase(),
+        state=StateStore(cv_cfg.state_dir),
+    )
+    # The dropped-in file was read instead of inputs/fels-cv.txt.
+    assert result.changed is True
+    assert any("INBOX CV TEXT" in u for u in captured)
+    assert all("CV PAGE TEXT" not in u for u in captured)
+
+
+def test_cv_unchanged_is_noop_then_file_edit_reextracts(cv_cfg):
+    state = StateStore(cv_cfg.state_dir)
+    orchestrate.run(cv_cfg, llm=_cv_llm(), ujin=_ujin(), supabase=FakeSupabase(), state=state)
+
+    # Untouched CV (and pages) -> no LLM work, nothing published.
+    llm2 = _cv_llm()
+    result = orchestrate.run(cv_cfg, llm=llm2, ujin=_ujin(), supabase=FakeSupabase(), state=state)
+    assert result.changed is False and llm2.calls == 0
+
+    # Editing the CV file changes its fingerprint -> only the CV re-extracts.
+    (cv_cfg.data_dir / "inputs" / "fels-cv.txt").write_text(
+        "Publications Record\nCV PAGE TEXT (revised)", encoding="utf-8"
+    )
+    llm3 = _cv_llm()
+    result = orchestrate.run(cv_cfg, llm=llm3, ujin=_ujin(), supabase=FakeSupabase(), state=state)
+    assert result.changed is True
+    assert result.sources_changed == ["fels-cv"]
+    assert llm3.calls == 1
+
+
+def test_missing_cv_file_skips_and_keeps_cache(cv_cfg):
+    state = StateStore(cv_cfg.state_dir)
+    orchestrate.run(cv_cfg, llm=_cv_llm(), ujin=_ujin(), supabase=FakeSupabase(), state=state)
+
+    (cv_cfg.data_dir / "inputs" / "fels-cv.txt").unlink()
+    llm2 = _cv_llm()
+    result = orchestrate.run(
+        cv_cfg, llm=llm2, ujin=_ujin(), supabase=FakeSupabase(), state=state, force=True
+    )
+    # The CV source is skipped (no invented extraction) but its cached pubs
+    # still flow into the merged set.
+    assert "fels-cv" not in result.sources_changed
+    assert llm2.calls == 1  # only the scraped source hit the LLM
+    assert result.total_publications == 3
+
+
+def test_cv_extraction_skips_preamble_before_publications(cv_cfg):
+    captured = []
+
+    class CapturingLLM(FakeLLM):
+        def complete(self, *, system, user, **kw):
+            captured.append(user)
+            return super().complete(system=system, user=user, **kw)
+
+    llm = CapturingLLM({"CV PAGE TEXT": CV_PUBS, "FELS PAGE": SCRAPED_PUBS})
+    orchestrate.run(
+        cv_cfg, llm=llm, ujin=_ujin(), supabase=FakeSupabase(),
+        state=StateStore(cv_cfg.state_dir),
+    )
+    assert captured
+    assert all("biography preamble" not in u for u in captured)
+
+
+def test_scholar_source_skipped_on_render_error_keeps_cache(scholar_cfg):
+    state = StateStore(scholar_cfg.state_dir)
+    # First run populates the cache.
+    orchestrate.run(
+        scholar_cfg, llm=FakeLLM({"SCHOLAR PROFILE TEXT": FELS_PUBS}),
+        ujin=_ujin(), supabase=FakeSupabase(), obscura=FakeObscura(), state=state,
+    )
+    # Second run: render fails -> reuse cached pubs, no new LLM call.
+    llm2 = FakeLLM({"SCHOLAR PROFILE TEXT": FELS_PUBS})
+    sb = FakeSupabase()
+    result = orchestrate.run(
+        scholar_cfg, llm=llm2, ujin=_ujin(), supabase=sb,
+        obscura=FakeObscura(text="", ok=True), state=state, force=True,
+    )
+    assert llm2.calls == 0  # render failed -> no extraction
+    # cached fels pubs still flow through to the merged set
+    assert result.total_publications == 2
+
+
+# --- Scholar gate (disabled by default) --------------------------------------
+
+
+def test_scholar_disabled_by_default_never_renders(scholar_cfg):
+    cfg_off = Config(openrouter_api_key="x", data_dir=scholar_cfg.data_dir)
+    assert cfg_off.scholar_enabled is False
+    obs = FakeObscura()
+    llm = FakeLLM({"SCHOLAR PROFILE TEXT": FELS_PUBS})
+    result = orchestrate.run(
+        cfg_off, llm=llm, ujin=_ujin(), supabase=FakeSupabase(),
+        obscura=obs, state=StateStore(cfg_off.state_dir),
+    )
+    # Nothing touched scholar.google.* and no LLM call was made.
+    assert obs.rendered == []
+    assert llm.calls == 0
+    assert result.changed is False
+
+
+def test_scholar_disabled_keeps_cached_pubs(scholar_cfg):
+    state = StateStore(scholar_cfg.state_dir)
+    # First run with Scholar enabled populates the cache.
+    orchestrate.run(
+        scholar_cfg, llm=FakeLLM({"SCHOLAR PROFILE TEXT": FELS_PUBS}),
+        ujin=_ujin(), supabase=FakeSupabase(), obscura=FakeObscura(), state=state,
+    )
+    # Later runs with Scholar back off still publish the cached papers.
+    cfg_off = Config(openrouter_api_key="x", data_dir=scholar_cfg.data_dir)
+    result = orchestrate.run(
+        cfg_off, llm=FakeLLM({}), ujin=_ujin(), supabase=FakeSupabase(),
+        obscura=FakeObscura(), state=state, force=True,
+    )
+    assert result.total_publications == 2
+
+
+def test_load_sources_explicit_enabled_wins(tmp_path):
+    p = tmp_path / "sources.yaml"
+    p.write_text(
+        "sources:\n"
+        "  - {key: a, url: 'https://scholar.google.com/citations?user=X', enabled: true}\n"
+        "  - {key: b, url: 'https://example.com/page', enabled: false}\n"
+        "  - {key: c, path: inputs/cv.docx}\n",
+        encoding="utf-8",
+    )
+    srcs = {s.key: s for s in orchestrate.load_sources(p, scholar_enabled=False)}
+    assert srcs["a"].enabled is True   # explicit flag beats the Scholar default
+    assert srcs["b"].enabled is False  # explicit off for an ordinary page
+    assert srcs["c"].enabled is True   # CV sources default on
+
+
+def test_load_sources_scholar_defaults_off(tmp_path):
+    p = tmp_path / "sources.yaml"
+    p.write_text(
+        "sources:\n"
+        "  - {key: a, url: 'https://scholar.google.com/citations?user=X'}\n"
+        "  - {key: b, url: 'https://example.com/page'}\n",
+        encoding="utf-8",
+    )
+    srcs = {s.key: s for s in orchestrate.load_sources(p)}
+    assert srcs["a"].enabled is False
+    assert srcs["b"].enabled is True
+    srcs_on = {s.key: s for s in orchestrate.load_sources(p, scholar_enabled=True)}
+    assert srcs_on["a"].enabled is True

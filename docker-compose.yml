@@ -1,16 +1,32 @@
-# HCT backend: the ujin scrape service + the one-shot hct-manager.
+# HCT backend: the ujin scrape service + the one-shot hct-manager. This builds
+# the *data* (Supabase); the website itself is a separate React + Vite app under
+# ./frontend (built with `npm run build`, deployed independently).
 #
 # Typical use (poll once, on demand):
 #   1. cp .env.example .env                 # then add your OPENROUTER_API_KEY + SB_*
 #   2. docker compose up -d ujin            # start the scrape service (:8901)
-#   3. docker compose run --rm hct-manager run        # update Supabase
-#      docker compose run --rm hct-manager run --force # ignore fingerprints
+#   3. docker compose run --rm hct-manager run          # CV -> publications + full timeline
+#      docker compose run --rm hct-manager run --force  # ignore fingerprints
+#      docker compose run --rm hct-manager sync-content # people/research/site YAML -> Supabase
 #
-# Google Scholar is anti-bot. The default `ujin` build is pure-python (fast) and
-# may get blocked; for reliable scraping use the obscura renderer instead:
-#   docker compose --profile render up -d ujin-render
-#   docker compose run --rm -e UJIN_URL=http://ujin-render:8901 hct-manager run
-# (first `ujin-render` build is slow — it compiles the Rust/V8 renderer.)
+# Inputs go in the ./dropbox folder at the repo root (mounted read-only into the
+# container at /app/data/inbox): the lab CV (.docx) plus people.yaml,
+# research.yaml, and site.yaml (header/nav + the editable prose sections). Drop
+# updated files in, re-run hct-manager, done. Committed defaults live in
+# backend/data/inputs/; a same-named file in dropbox/ overrides them.
+#
+# Google Scholar is an optional *secondary* source (the CV is primary) and is
+# disabled by default — enable per run with HCT_SCHOLAR_ENABLED=1. Scholar
+# profiles are scraped by rendering them to text with the obscura headless
+# browser (ujin's HTTP extractors drop the table's authors/venue/year). The
+# obscura binary is baked into the hct-manager image from `ujin:full`, so build
+# that first (it compiles the Rust/V8 renderer — slow, one time):
+#   docker compose --profile render build ujin-render   # produces ujin:full
+#   docker compose build hct-manager                    # copies obscura in
+#   docker compose up -d ujin                            # pure-python (non-Scholar sources)
+#   docker compose run --rm -e HCT_SCHOLAR_ENABLED=1 hct-manager run
+# Without ujin:full, hct-manager still builds but Scholar sources are skipped
+# (obscura absent); CV and non-Scholar sources are unaffected.
 
 services:
   # ujin scrape service — pure-python (fast build, HTTP-only, degrades gracefully).
@@ -49,7 +65,7 @@ services:
       - HCT_DATA_DIR=/app/data
     volumes:
       - ./backend/data:/app/data            # sources, templates, state, inputs
-      - ./frontend:/app/frontend            # index.html (read by migrate-content)
+      - ./dropbox:/app/data/inbox:ro        # drop folder: CV docx + people/research/site YAML
     depends_on:
       - ujin
     restart: "no"

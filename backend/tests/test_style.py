@@ -40,6 +40,14 @@ def test_read_docx_extracts_paragraph_text(tmp_path):
     assert "He studies HCI & modeling." in text  # entity unescaped
 
 
+def test_read_docx_breaks_paragraphs_into_lines(tmp_path):
+    # Regression: paragraph breaks used to be substituted into the XML *between*
+    # <w:t> runs and then dropped, so the whole document came back as one line.
+    p = tmp_path / "cv.docx"
+    _make_docx(p, ["Paper A, 2020.", "Paper B, 2019."])
+    assert read_text_input(p).splitlines() == ["Paper A, 2020.", "Paper B, 2019."]
+
+
 def test_read_plain_text(tmp_path):
     p = tmp_path / "notes.md"
     p.write_text("# Heading\nSome prose.", encoding="utf-8")

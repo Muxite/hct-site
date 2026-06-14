@@ -1,0 +1,76 @@
+# Lab members — the source of truth for the site's People section.
+# Edit this file (or drop an updated copy into the dropbox/ folder, which
+# wins), then run:  hct-manager sync-content
+#
+# status: current | alumni   (alumni render in their own group)
+# Order here is the display order.
+people:
+  - name: Prof. Sid Fels
+    role: Director, HCT Lab
+    email: ssfels@ece.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/sid.png
+    status: current
+  - name: Nima Ashjaee
+    role: PhD Student
+    email: nima.ashjaee@ubc.ca
+    photo: ./Human Communication Technologies Lab_files/nima.jpg
+    status: current
+  - name: Atabak Eghbal
+    role: PhD student
+    email: atabak@ece.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/atabak.jpg
+    status: current
+  - name: Yuanpei Gao
+    role: MASc Student, Brain2Speech
+    email: y289gao@uwaterloo.ca
+    photo: ./Human Communication Technologies Lab_files/yuanpei.jpg
+    status: current
+  - name: Hamidreza Aftabi
+    role: PhD Student
+    email: aftabi@student.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/hamidreza.jpg
+    status: current
+  - name: Eric Easthope
+    role: MASc Student, Brain2Speech
+    email: eric.easthope@me.com
+    photo: ./Human Communication Technologies Lab_files/eric.png
+    status: current
+  - name: Jennie Chen
+    role: MASc Student, Brain2Speech
+    email: jchn@ece.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/jennie.jpg
+    status: current
+  - name: Sahar Mavali
+    role: MASc Student, ViDeX
+    email: smavali@student.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/sahar.jpg
+    status: current
+  - name: Ursa Maity
+    role: MASc Student
+    email: ursa.maity@ubc.ca
+    photo: ./Human Communication Technologies Lab_files/ursa.jpg
+    status: current
+  - name: Kaseya Xia
+    role: MASc Student, Mixed Reality
+    email: zxia@ece.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/kaseya.jpg
+    status: current
+  - name: Beibei Xiong
+    role: MASc Student
+    email: bear233@student.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/beibei.jpg
+    status: current
+  - name: Shanny Lu
+    role: MASc Student
+    email: lushanny@student.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/shanny.jpeg
+    status: current
+  - name: Debasish Ray Mohapatra
+    role: PhD Student, Brain2Speech
+    email: debasishray@ece.ubc.ca
+    photo: ./Human Communication Technologies Lab_files/deb.jpg
+    status: current
+  - name: Rowan Wu
+    role: MASc Student
+    photo: ./Human Communication Technologies Lab_files/rowan.jpg
+    status: current

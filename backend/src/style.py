@@ -29,10 +29,18 @@ def _read_docx(path: Path) -> str:
 
     with zipfile.ZipFile(path) as zf:
         xml = zf.read("word/document.xml").decode("utf-8", errors="replace")
-    # Paragraph breaks, then text runs.
-    xml = re.sub(r"</w:p>", "\n", xml)
-    runs = re.findall(r"<w:t[^>]*>(.*?)</w:t>", xml, flags=re.DOTALL)
-    text = "".join(runs)
+    # One output line per paragraph: split on </w:p> and join each paragraph's
+    # text runs. (Substituting "\n" into the XML doesn't work — the newline
+    # lands *between* <w:t> elements and is dropped by the run regex.)
+    # NB: require whitespace (or nothing) after "w:t" so <w:tab/> does not match
+    # as an opening tag — on tab-heavy documents (e.g. the UBC CV form) that bug
+    # swallowed everything up to the next real </w:t> and leaked raw XML.
+    lines = []
+    for para in xml.split("</w:p>"):
+        runs = re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", para, flags=re.DOTALL)
+        if runs:
+            lines.append("".join(runs))
+    text = "\n".join(lines)
     # Unescape the handful of XML entities Word emits.
     for ent, ch in (("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&apos;", "'")):
         text = text.replace(ent, ch)

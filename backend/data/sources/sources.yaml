@@ -1,12 +1,34 @@
-# Profiles to scrape for publications. Add lab members here.
-# `key`    — stable id (used for the state file name); keep it short + ascii.
-# `member` — display name (informational).
-# `url`    — the page to scrape (Google Scholar citations profile).
-# `mode`   — optional ujin scrape mode override (default: article).
+# Publication sources. Add lab members here.
+# `key`     — stable id (used for the state file name); keep it short + ascii.
+# `member`  — display name (informational).
+# `path`    — a local CV file (.docx/.txt/.md/.tex) under the data dir, e.g.
+#             inputs/fels-cv.docx. A same-named file dropped into the inbox/
+#             drop folder (repo-root dropbox/ in docker) wins over the
+#             configured path. The CV is the PRIMARY source of truth: it's the
+#             document the lab actually keeps updated, and on a duplicate
+#             paper the CV's metadata wins (CV sources merge first). Re-runs
+#             are no-ops until the file's content changes.
+# `url`     — alternative to `path`: a Google Scholar citations profile.
+#             src/scholar.py normalizes it to a full, newest-first render
+#             (pagesize=100 + view_op=list_works + sortby=pubdate).
+# `enabled` — explicit on/off for a source. When omitted, Scholar profiles
+#             default to OFF (scraping Scholar trips CAPTCHAs; opt in per run
+#             with HCT_SCHOLAR_ENABLED=1) and everything else defaults to ON.
+# `mode`    — optional ujin scrape mode override (url sources only).
+#
+# When Scholar IS enabled, its metadata is reachable: the obscura renderer
+# (ujin-full) captures the full publication table — title, authors, venue,
+# year — and the LLM extractor parses it cleanly. ujin's links/article modes
+# and the per-paper view_citation pages do NOT work (bot-walled / lossy).
 sources:
+  - key: fels-cv
+    member: Sidney Fels
+    path: inputs/fels-cv.docx
   - key: fels
     member: Sidney Fels
-    url: https://scholar.google.com/citations?user=bf7ilxMAAAAJ&hl=en&oi=ao
+    url: https://scholar.google.com/citations?user=bf7ilxMAAAAJ&hl=en
+    enabled: false   # secondary; CAPTCHA-blocked — opt-in only
   - key: ashjaee
     member: Nima Ashjaee
     url: https://scholar.google.com/citations?user=8XQ0NpIAAAAJ&hl=en
+    enabled: false   # secondary; CAPTCHA-blocked — opt-in only

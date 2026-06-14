@@ -13,3 +13,8 @@ dist/
 # generated runtime state + experiment artifacts
 backend/data/state/
 experiments/runs/
+
+# drop folder for the real CV + content YAML (mounted into hct-manager;
+# committed examples live in backend/data/inputs/)
+dropbox/*
+!dropbox/.gitkeep

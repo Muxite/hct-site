@@ -1,25 +1,130 @@
-"""Migrate the static site's content into Supabase rows.
+"""Site boilerplate -> ``site_content`` rows (plus the QA text helpers).
 
-The People and Research sections are regular tile markup, so we parse them into
-``Person`` / ``ResearchProject`` rows. The remaining prose sections (vision,
-innovation, contact, ...) become ``site_content`` key/value blurbs the frontend
-can fetch by key. Where the source is thin (blank research taglines), the AI can
-fill a short ``description``; this is optional so the parser stays testable
-without an LLM.
+The free-text sections (vision, innovation, contact, ...) and the header/nav
+come from an editable ``site.yaml`` dropped into the mounted inbox folder and
+become ``site_content`` key/value blurbs the frontend fetches by key (see
+:func:`load_site_yaml`). People and research are likewise YAML-driven (see
+:mod:`src.sync_content`). ``parse_site_sections`` survives only as a legacy
+HTML migration path; ``publications_block_text`` survives for the QA
+cross-check and the experiment harness.
 """
 
 from __future__ import annotations
 
 import html as _html
 import re
-from typing import Any, Protocol
+from pathlib import Path
 
-from src.models import Person, ResearchProject, SiteContent
+import yaml
+
+from src.models import SiteContent
+
+# Prose section keys we accept in site.yaml (also the legacy <h2> heading map
+# below). ``site_meta`` holds the header/nav and is emitted alongside these.
+_SITE_META_KEY = "site_meta"
 
 
-class SupportsComplete(Protocol):
-    def complete(self, *, system: str, user: str, **kw: Any) -> str: ...
+class SiteContentError(ValueError):
+    """Raised when ``site.yaml`` is missing, malformed, or invalid."""
 
+
+def leading_comment_block(path: str | Path) -> str:
+    """Return the file's leading ``#`` comment + blank-line header (or "").
+
+    Lets the round-trip writers (people/research/site) rewrite the body while
+    keeping the hand-authored "edit this then run sync-content" preamble.
+    """
+    p = Path(path)
+    if not p.exists():
+        return ""
+    kept: list[str] = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if line.strip() == "" or line.lstrip().startswith("#"):
+            kept.append(line)
+        else:
+            break
+    text = "\n".join(kept).rstrip("\n")
+    return text + "\n\n" if text else ""
+
+
+def dump_yaml_with_header(path: str | Path, data: dict) -> None:
+    """Write ``data`` as block-style YAML, preserving the file's comment header.
+
+    ``width`` is set very wide so long taglines / prose stay on one line instead
+    of being folded, keeping the diff against a hand-edited file readable.
+    """
+    header = leading_comment_block(path)
+    body = yaml.safe_dump(
+        data,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+        width=4096,
+    )
+    Path(path).write_text(header + body, encoding="utf-8")
+
+
+def load_site_yaml(path: str | Path) -> list[SiteContent]:
+    """Parse ``site.yaml`` into ``site_content`` rows.
+
+    Emits one row per ``sections.<key>`` (value ``{title, text}``) plus a
+    ``site_meta`` row holding ``{title, subtitle, tagline, nav}`` from the
+    top-level ``site:`` block. The YAML is the source of truth for the boilerplate.
+    """
+
+    p = Path(path)
+    if not p.exists():
+        raise SiteContentError(f"{p} not found")
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise SiteContentError(f"{p}: expected a top-level mapping")
+
+    out: list[SiteContent] = []
+
+    meta = data.get("site")
+    if meta is not None:
+        if not isinstance(meta, dict):
+            raise SiteContentError(f"{p}: 'site:' must be a mapping")
+        out.append(SiteContent(key=_SITE_META_KEY, value=dict(meta)))
+
+    sections = data.get("sections") or {}
+    if not isinstance(sections, dict):
+        raise SiteContentError(f"{p}: 'sections:' must be a mapping")
+    for key, value in sections.items():
+        if not isinstance(value, dict):
+            raise SiteContentError(f"{p}: sections['{key}'] must be a mapping")
+        text = str(value.get("text", "")).strip()
+        if not text:
+            raise SiteContentError(f"{p}: sections['{key}'] has empty 'text'")
+        title = str(value.get("title", key)).strip()
+        out.append(SiteContent(key=str(key), value={"title": title, "text": text}))
+
+    if not out:
+        raise SiteContentError(f"{p}: no 'site:' or 'sections:' content found")
+    return out
+
+
+def dump_site_yaml(path: str | Path, contents: list[SiteContent]) -> None:
+    """Write ``site_content`` rows back to ``site.yaml`` (inverse of load).
+
+    The ``site_meta`` row becomes the top-level ``site:`` block; every other row
+    becomes ``sections.<key>``. Header comment is preserved. Re-loading the
+    written file yields the same rows (round-trip safe).
+    """
+    site_meta: dict = {}
+    sections: dict = {}
+    for c in contents:
+        if c.key == _SITE_META_KEY:
+            site_meta = dict(c.value)
+        else:
+            sections[c.key] = dict(c.value)
+
+    data: dict = {}
+    if site_meta:
+        data["site"] = site_meta
+    if sections:
+        data["sections"] = sections
+    dump_yaml_with_header(path, data)
 
 # Prose <h2> sections we lift verbatim into site_content (heading -> key).
 # People/Research/Publications are structured and handled separately.
@@ -33,12 +138,6 @@ _SECTION_KEYS = {
     "opportunities": "opportunities",
 }
 _SKIP_HEADINGS = {"people", "research", "publications"}
-
-_RESEARCH_DESC_SYSTEM = (
-    "You write a single 1-2 sentence description of a research project for a lab "
-    "website, in the lab's voice. Plain text, no heading. Use only the given "
-    "title and tagline; never invent specifics."
-)
 
 
 def _clean(text: str) -> str:
@@ -69,53 +168,6 @@ def _section(html: str, anchor: str) -> str:
     return rest if not nxt else rest[: len(anchor) + nxt.start()]
 
 
-def parse_people(html: str) -> list[Person]:
-    """Extract lab members from the ``#people`` tile section."""
-    section = _section(html, 'id="people"')
-    people: list[Person] = []
-    for i, chunk in enumerate(section.split('class="person-tile"')[1:]):
-        photo = re.search(r'<img[^>]*\bsrc="([^"]+)"', chunk)
-        name = re.search(r"<strong>(.*?)</strong>", chunk, re.DOTALL)
-        role = re.search(r'class="project"[^>]*>(.*?)</div>', chunk, re.DOTALL)
-        email = re.search(r'class="email">.*?<a[^>]*>(.*?)</a>', chunk, re.DOTALL)
-        if not name:
-            continue
-        people.append(
-            Person(
-                name=_clean(name.group(1)),
-                role=_clean(role.group(1)) if role else None,
-                email=_clean(email.group(1)).replace(" [at] ", "@") if email else None,
-                photo=_clean(photo.group(1)) if photo else None,
-                sort_order=i,
-            )
-        )
-    return people
-
-
-def parse_research(html: str) -> list[ResearchProject]:
-    """Extract research projects from the ``#research`` tile section."""
-    section = _section(html, 'id="research"')
-    projects: list[ResearchProject] = []
-    for i, chunk in enumerate(section.split('class="research-tile"')[1:]):
-        link = re.search(r'href="([^"]+)"', chunk)
-        image = re.search(r'<img[^>]*\bsrc="([^"]+)"', chunk)
-        title = re.search(r"<h3>(.*?)</h3>", chunk, re.DOTALL)
-        tagline = re.search(r"<h4[^>]*>(.*?)</h4>", chunk, re.DOTALL)
-        if not title:
-            continue
-        tag = _clean(tagline.group(1)) if tagline else ""
-        projects.append(
-            ResearchProject(
-                title=_clean(title.group(1)),
-                tagline=tag or None,
-                link=_clean(link.group(1)) if link else None,
-                image=_clean(image.group(1)) if image else None,
-                sort_order=i,
-            )
-        )
-    return projects
-
-
 def parse_site_sections(html: str) -> list[SiteContent]:
     """Lift the prose ``<h2>`` sections into site_content key/value blurbs."""
     out: list[SiteContent] = []
@@ -137,9 +189,8 @@ def parse_site_sections(html: str) -> list[SiteContent]:
 def publications_block_text(html: str) -> str:
     """Plain text of the static ``#publications-static`` fallback block.
 
-    The block lists the lab's papers (newest first) and is the offline source for
-    `import-html` when Google Scholar is unreachable. Returns "" if absent. The
-    caller caps length (the recent slice) when feeding it to the LLM.
+    The block lists the lab's papers (newest first); the QA source cross-check
+    and the experiment harness read it. Returns "" if absent.
     """
     start = html.find('id="publications-static"')
     if start == -1:
@@ -152,34 +203,3 @@ def publications_block_text(html: str) -> str:
         r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', r"\2 (\1)", block, flags=re.I | re.S
     )
     return _strip_tags(block)
-
-
-def enrich_research(
-    projects: list[ResearchProject],
-    *,
-    llm: SupportsComplete,
-    style_profile: str = "",
-) -> None:
-    """Write a short ``description`` for each project (in place) via the LLM."""
-    for p in projects:
-        style = f"Lab style:\n{style_profile.strip()}\n\n" if style_profile.strip() else ""
-        user = f"{style}Project title: {p.title}\nTagline: {p.tagline or '(none)'}\n\nWrite the description."
-        p.description = llm.complete(
-            system=_RESEARCH_DESC_SYSTEM, user=user, json_mode=False,
-            max_tokens=200, label="research",
-        ).strip()
-
-
-def build_content(
-    html: str,
-    *,
-    llm: SupportsComplete | None = None,
-    style_profile: str = "",
-) -> tuple[list[Person], list[ResearchProject], list[SiteContent]]:
-    """Parse the static HTML into rows; optionally enrich research via the LLM."""
-    people = parse_people(html)
-    research = parse_research(html)
-    site_content = parse_site_sections(html)
-    if llm is not None:
-        enrich_research(research, llm=llm, style_profile=style_profile)
-    return people, research, site_content

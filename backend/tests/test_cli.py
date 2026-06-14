@@ -24,19 +24,24 @@ def test_parser_analyze_style():
     assert args.path == "cv.docx" and args.save is True
 
 
-def test_parser_import_html_defaults():
-    args = cli.build_parser().parse_args(["import-html"])
-    assert args.command == "import-html"
-    assert args.max_chars == 6000
-    assert args.no_timeline is False and args.no_blurbs is False
+def test_parser_sync_content_defaults():
+    args = cli.build_parser().parse_args(["sync-content"])
+    assert args.command == "sync-content"
+    assert args.people is None and args.research is None and args.site is None
 
 
-def test_parser_import_html_flags():
+def test_parser_sync_content_paths():
     args = cli.build_parser().parse_args(
-        ["import-html", "--max-chars", "9000", "--no-timeline", "--no-blurbs"]
+        ["sync-content", "--people", "/x/p.yaml", "--research", "/x/r.yaml",
+         "--site", "/x/s.yaml"]
     )
-    assert args.max_chars == 9000
-    assert args.no_timeline is True and args.no_blurbs is True
+    assert args.people == "/x/p.yaml" and args.research == "/x/r.yaml"
+    assert args.site == "/x/s.yaml"
+
+
+def test_parser_import_html_removed():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["import-html"])
 
 
 def test_parser_describe_flags():
@@ -113,11 +118,43 @@ def test_run_command_reports_noop(monkeypatch, capsys):
     assert "nothing written" in capsys.readouterr().out
 
 
+def test_run_command_prints_parse_summary(monkeypatch, capsys, tmp_path):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(
+        Config, "from_env",
+        classmethod(lambda cls: Config(openrouter_api_key="k", data_dir=tmp_path)),
+    )
+
+    def fake_run(cfg, *, parse_tracker=None, **kw):
+        from src.cv_parse import ParseOutcome
+
+        parse_tracker.record(ParseOutcome(
+            path="deterministic", section="journal", slug="x2020-y", entry_preview="X",
+        ))
+        parse_tracker.record(ParseOutcome(
+            path="llm", section="other", slug="z2021-w", entry_preview="Z",
+        ))
+        return RunResult(changed=True, sources_changed=["cv"], total_publications=2,
+                         timeline_entries=2)
+
+    monkeypatch.setattr("src.orchestrate.run", fake_run)
+    rc = cli.main(["run"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "cv parse: 2 entries" in out
+    assert "1 via LLM fallback" in out
+    # per-entry + per-run observability persisted
+    assert (tmp_path / "state" / "parse-report.jsonl").exists()
+    assert (tmp_path / "state" / "parse-summary.jsonl").exists()
+
+
 class _FakeSupabase:
     """Context-manager stand-in for SupabaseClient with canned select rows."""
 
     def __init__(self, rows):
         self._rows = rows
+        self.replaced = {}
+        self.upserted = {}
 
     def __enter__(self):
         return self
@@ -127,6 +164,51 @@ class _FakeSupabase:
 
     def select(self, table, **kw):
         return self._rows.get(table, [])
+
+    def replace(self, table, rows, *, key):
+        rows = list(rows)
+        self.replaced[table] = rows
+        return len(rows)
+
+    def upsert(self, table, rows, *, on_conflict=None):
+        rows = list(rows)
+        self.upserted[table] = rows
+        return len(rows)
+
+
+def test_sync_content_command(monkeypatch, capsys, tmp_path):
+    _patch_common(monkeypatch)
+    (tmp_path / "people.yaml").write_text(
+        "people:\n  - name: A\n    status: current\n  - name: B\n    status: alumni\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "research.yaml").write_text(
+        "research:\n  - title: Brain2Speech\n    status: current\n"
+        "  - title: Old\n    status: archived\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "site.yaml").write_text(
+        "site:\n  title: HCT Lab\nsections:\n  vision:\n    title: Vision\n    text: Communicate.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        Config, "from_env",
+        classmethod(lambda cls: Config(openrouter_api_key="k", data_dir=tmp_path)),
+    )
+    sb = _FakeSupabase({})
+    monkeypatch.setattr(cli, "_make_supabase", lambda cfg: sb)
+    rc = cli.main([
+        "sync-content",
+        "--people", str(tmp_path / "people.yaml"),
+        "--research", str(tmp_path / "research.yaml"),
+        "--site", str(tmp_path / "site.yaml"),
+    ])
+    assert rc == 0
+    assert "2 people" in capsys.readouterr().out
+    assert sb.replaced["people"][1]["kind"] == "alumni"
+    assert sb.replaced["research"][1]["kind"] == "archived"
+    keys = {r["key"] for r in sb.upserted["site_content"]}
+    assert "vision" in keys and "site_meta" in keys
 
 
 def test_qa_command_writes_report(monkeypatch, capsys, tmp_path):
