@@ -7,12 +7,20 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { SB_URL, SB_PUBLISHABLE_KEY, TABLES } from "../config.js";
+import { createMockClient } from "./mockClient.js";
 
 let _client = null;
 
 /** Build (and cache) the supabase-js client from the Vite env config. */
 export function getClient() {
   if (_client) return _client;
+  // Offline mode: a VITE_MOCK build serves a snapshot of the live Supabase data
+  // with no network or keys (the snapshot itself is a lazy chunk — see
+  // mockClient.js — so a normal build's bundle never includes it).
+  if (import.meta.env.VITE_MOCK) {
+    _client = createMockClient();
+    return _client;
+  }
   if (!SB_URL || !SB_PUBLISHABLE_KEY) {
     throw new Error(
       "Missing VITE_SB_URL / VITE_SB_PUBLISHABLE_KEY — copy .env.example to .env",
