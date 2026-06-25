@@ -71,12 +71,14 @@ hr {
   padding: 0;
 }
 
+/* Main page headings ("Opportunities", "People", …): large, bold, sans-serif. */
 h2 {
-  font-weight: 600;
+  font-size: 1.7em;
+  font-weight: 700;
 }
 
 .section {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 strong {
@@ -233,19 +235,26 @@ strong {
   margin: 0.25em 0;
 }
 
+/* Nested list (e.g. the required letter contents) uses hollow circular bullets. */
 .prose ul ul,
 .prose ol ul {
   margin: 0.3em 0 0.4em;
+  list-style-type: circle;
 }
 
+/* Role subheadings ("Undergraduate Students", …): bold + italic sans-serif so
+   they stand apart from the body text (the <i> tag supplies the italic). */
 .prose__heading {
-  margin: 1.1em 0 0.3em;
-  font-size: 1em;
-  font-weight: 600;
+  margin: 1.15em 0 0.35em;
+  font-size: 1.05em;
+  font-weight: 700;
+  font-style: italic;
 }
 
+/* Hyperlinks: standard blue, underlined. */
 .prose a {
-  color: inherit;
+  color: #1155cc;
+  text-decoration: underline;
 }
 
 /* Vision + Innovation sit side by side once there's room. */
