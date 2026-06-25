@@ -203,19 +203,71 @@ strong {
 }
 
 /* --- prose blocks (vision, contact, sponsors, …) -------------------------- */
-.prose > div {
-  margin-bottom: 0.8em;
-  max-width: 720px;
+/* Prose spans the full content width (paragraphs run edge to edge); the page
+   margins keep it readable. Vision + Innovation are paired into two columns
+   below so each still reads at a comfortable measure on wide screens. */
+/* Each prose section spans the full content width. An explicit width is needed
+   because main is a flex column (align-items: flex-start) that would otherwise
+   shrink-wrap these blocks to their content. */
+.prose-block {
+  width: 100%;
+}
+
+.prose {
+  width: 100%;
+  max-width: none;
   line-height: 1.55;
 }
 
-.prose h3 {
-  margin-bottom: 0.2em;
+.prose p {
+  margin: 0 0 0.8em;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0.3em 0 0.9em;
+  padding-left: 1.6em;
+}
+
+.prose li {
+  margin: 0.25em 0;
+}
+
+.prose ul ul,
+.prose ol ul {
+  margin: 0.3em 0 0.4em;
+}
+
+.prose__heading {
+  margin: 1.1em 0 0.3em;
+  font-size: 1em;
   font-weight: 600;
 }
 
+.prose a {
+  color: inherit;
+}
+
+/* Vision + Innovation sit side by side once there's room. */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 56px;
+  width: 100%;
+}
+
+.two-col > div {
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .two-col {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .note {
-  margin: 0.5em 0 0;
+  margin: 0.5em 0 1em;
 }
 
 /* --- publications --------------------------------------------------------- */

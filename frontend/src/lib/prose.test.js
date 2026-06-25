@@ -1,37 +1,55 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseProse } from "./prose.js";
+import { parseMarkdown, parseInline } from "./prose.js";
 
-test("parseProse splits blocks on blank lines", () => {
-  const blocks = parseProse("First para.\n\nSecond para.");
-  assert.equal(blocks.length, 2);
-  assert.equal(blocks[0].type, "para");
-  assert.equal(blocks[1].type, "para");
+test("parseMarkdown reads headings with level", () => {
+  const [b] = parseMarkdown("### Government");
+  assert.equal(b.type, "heading");
+  assert.equal(b.level, 3);
+  assert.equal(b.inline[0].v, "Government");
 });
 
-test("parseProse treats a short punctuation-free line as a heading", () => {
-  const [block] = parseProse("Platinum Sponsors");
-  assert.equal(block.type, "heading");
-  assert.equal(block.text, "Platinum Sponsors");
+test("parseMarkdown flows single newlines into one paragraph", () => {
+  const blocks = parseMarkdown("Altera Inc., US /\n NVIDIA, Inc. /\n Lancaster University");
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].type, "paragraph");
+  // a soft (space) join, not a <br>
+  assert.ok(blocks[0].inline.some((n) => n.t === "text" && n.v === " "));
+  assert.ok(!blocks[0].inline.some((n) => n.t === "break"));
 });
 
-test("parseProse linkifies URLs", () => {
-  const [block] = parseProse("See https://hct.ece.ubc.ca for more.");
-  const link = block.lines[0].find((n) => n.t === "link");
-  assert.equal(link.href, "https://hct.ece.ubc.ca");
-  assert.equal(link.label, "https://hct.ece.ubc.ca");
+test("parseMarkdown honors hard breaks (two trailing spaces)", () => {
+  const [b] = parseMarkdown("2366 Main Mall  \nVancouver, BC");
+  assert.ok(b.inline.some((n) => n.t === "break"));
 });
 
-test("parseProse turns obfuscated emails into mailto links", () => {
-  const [block] = parseProse("Reach us at sid [at] ece.ubc.ca today.");
-  const link = block.lines[0].find((n) => n.t === "link");
-  assert.equal(link.href, "mailto:sid@ece.ubc.ca");
-  assert.equal(link.label, "sid [at] ece.ubc.ca");
+test("parseMarkdown builds an ordered list with a nested unordered list", () => {
+  const md = [
+    "1. First item",
+    "2. Send a letter:",
+    "   - why you want to work",
+    "   - your C.V.",
+  ].join("\n");
+  const [list] = parseMarkdown(md);
+  assert.equal(list.type, "list");
+  assert.equal(list.ordered, true);
+  assert.equal(list.items.length, 2);
+  assert.equal(list.items[1].list.ordered, false);
+  assert.equal(list.items[1].list.items.length, 2);
 });
 
-test("parseProse keeps multiple lines within a block", () => {
-  const [block] = parseProse("Line one\nLine two");
-  assert.equal(block.type, "para");
-  assert.equal(block.lines.length, 2);
+test("parseInline parses markdown links and bold", () => {
+  const nodes = parseInline("see the [research pages](https://hct.ece.ubc.ca/research) and **bold**");
+  const link = nodes.find((n) => n.t === "link");
+  assert.equal(link.href, "https://hct.ece.ubc.ca/research");
+  assert.equal(link.children[0].v, "research pages");
+  assert.ok(nodes.some((n) => n.t === "bold"));
+});
+
+test("parseInline auto-links bare URLs and obfuscated emails", () => {
+  const url = parseInline("Website: https://hct.ece.ubc.ca").find((n) => n.t === "link");
+  assert.equal(url.href, "https://hct.ece.ubc.ca");
+  const email = parseInline("Email: ssfels [at] ece.ubc.ca").find((n) => n.t === "link");
+  assert.equal(email.href, "mailto:ssfels@ece.ubc.ca");
 });

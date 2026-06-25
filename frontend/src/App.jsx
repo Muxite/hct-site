@@ -67,7 +67,7 @@ export default function App() {
     const v = content[key];
     if (!v || !v.text) return null;
     return (
-      <div key={key}>
+      <div className="prose-block" key={key}>
         <h2>{PROSE_TITLES[key]}</h2>
         <Prose text={v.text} />
       </div>
@@ -78,8 +78,10 @@ export default function App() {
     <main>
       <Header meta={meta} />
 
-      {proseSection("vision")}
-      {proseSection("innovation")}
+      <div className="two-col">
+        {proseSection("vision")}
+        {proseSection("innovation")}
+      </div>
 
       <h2>People</h2>
       <People people={data.people} />
