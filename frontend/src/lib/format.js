@@ -53,3 +53,14 @@ export function formatAuthors(authors) {
 export function emailLabel(email) {
   return String(email || "").replace("@", " [at] ");
 }
+
+/**
+ * Normalize an asset path from the DB. The lab's data stores photos/images as
+ * "./Human Communication Technologies Lab_files/<file>" (the original site's
+ * folder, vendored under the app's public/). Strip the leading "./" so the URL
+ * is absolute and resolves on any route.
+ */
+export function assetUrl(path) {
+  const p = String(path || "");
+  return p.startsWith("./") ? p.slice(1) : p;
+}

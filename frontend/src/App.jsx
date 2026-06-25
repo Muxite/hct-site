@@ -1,31 +1,40 @@
 import { useEffect, useState } from "react";
 import {
-  getTimeline,
+  getPublications,
   getPeople,
   getResearch,
   getSiteContent,
 } from "./data/db.js";
-import { useRoute } from "./lib/useRoute.js";
 import Header from "./components/Header.jsx";
-import Section from "./components/Section.jsx";
-import Timeline from "./components/Timeline.jsx";
+import Prose from "./components/Prose.jsx";
 import People from "./components/People.jsx";
 import Research from "./components/Research.jsx";
-import PaperDetail from "./components/PaperDetail.jsx";
+import Publications from "./components/Publications.jsx";
 
-// The site is data-driven: timeline (full publication history), people, research,
-// and the prose sections all come from Supabase, which the backend fills from the
-// CV + the editable YAMLs. Everything loads in one pass on mount.
+// The site mirrors the original hct-lab.github.io layout, but every section is
+// rendered live from Supabase (publications, people, research, and the prose
+// blocks) instead of baked-in markup. Everything loads in one pass on mount.
+//
+// Section headings match the original site verbatim.
+const PROSE_TITLES = {
+  vision: "Vision",
+  innovation: "Innovation",
+  contact: "Contact",
+  land_acknowledgment: "Land Acknowledgment",
+  edi: "Equity, Diversity, Inclusion + Indigeneity",
+  sponsors: "Sponsors",
+  opportunities: "Opportunities",
+};
+
 export default function App() {
-  const { paper, navigate } = useRoute();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getTimeline(), getPeople(), getResearch(), getSiteContent()])
-      .then(([timeline, people, research, content]) => {
-        if (alive) setData({ timeline, people, research, content });
+    Promise.all([getPublications(), getPeople(), getResearch(), getSiteContent()])
+      .then(([publications, people, research, content]) => {
+        if (alive) setData({ publications, people, research, content });
       })
       .catch((err) => alive && setError(err));
     return () => {
@@ -35,66 +44,67 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="state state--error">
-        <p>Couldn’t reach the lab database.</p>
-        <code>{String(error.message || error)}</code>
-      </div>
+      <main>
+        <div className="state state--error">
+          Couldn’t reach the lab database — {String(error.message || error)}
+        </div>
+      </main>
     );
   }
   if (!data) {
-    return <div className="state state--loading">Loading…</div>;
-  }
-
-  const meta = data.content.site_meta || {};
-  const navItems = Array.isArray(meta.nav) ? meta.nav : [];
-
-  if (paper) {
-    return <PaperDetail slug={paper} meta={meta} onBack={() => navigate(null)} />;
-  }
-
-  return (
-    <>
-      <Header meta={meta} nav={navItems} />
-      <main className="content">
-        <Section id="latest" title="Latest" eyebrow="01">
-          <Timeline entries={data.timeline} onSelect={navigate} />
-        </Section>
-
-        <ProseSection id="vision" content={data.content.vision} eyebrow="02" />
-        <ProseSection id="innovation" content={data.content.innovation} eyebrow="03" />
-
-        <Section id="people" title="People" eyebrow="04">
-          <People people={data.people} />
-        </Section>
-
-        <Section id="research" title="Research" eyebrow="05">
-          <Research projects={data.research} />
-        </Section>
-
-        <ProseSection id="contact" content={data.content.contact} eyebrow="06" />
-        <ProseSection id="opportunities" content={data.content.opportunities} eyebrow="07" />
-        <ProseSection id="sponsors" content={data.content.sponsors} eyebrow="08" />
-        <ProseSection id="edi" content={data.content.edi} eyebrow="09" />
-        <ProseSection
-          id="land_acknowledgment"
-          content={data.content.land_acknowledgment}
-          eyebrow="10"
-        />
+    return (
+      <main>
+        <div className="state">Loading…</div>
       </main>
-      <footer className="footer">
-        <span>{meta.subtitle || meta.title || "HCT Lab"}</span>
-        <span>University of British Columbia</span>
-      </footer>
-    </>
-  );
-}
+    );
+  }
 
-// A prose section is only rendered when its site_content key exists.
-function ProseSection({ id, content, eyebrow }) {
-  if (!content || !content.text) return null;
+  const content = data.content;
+  const meta = content.site_meta || {};
+
+  // A prose section renders only when its site_content row exists.
+  const proseSection = (key) => {
+    const v = content[key];
+    if (!v || !v.text) return null;
+    return (
+      <div key={key}>
+        <h2>{PROSE_TITLES[key]}</h2>
+        <Prose text={v.text} />
+      </div>
+    );
+  };
+
   return (
-    <Section id={id} title={content.title} eyebrow={eyebrow}>
-      <Section.Prose text={content.text} />
-    </Section>
+    <main>
+      <Header meta={meta} />
+
+      {proseSection("vision")}
+      {proseSection("innovation")}
+
+      <h2>People</h2>
+      <People people={data.people} />
+
+      <h2>Research</h2>
+      <Research projects={data.research} />
+      <div className="note">
+        For past projects, see our old HCT site{" "}
+        <a href="https://hct.ece.ubc.ca/research">research page</a>.
+      </div>
+
+      {proseSection("contact")}
+      {proseSection("land_acknowledgment")}
+      {proseSection("edi")}
+      {proseSection("sponsors")}
+      {proseSection("opportunities")}
+
+      <h2 className="section" id="publications">
+        Publications
+      </h2>
+      <Publications publications={data.publications} />
+
+      <footer>
+        Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.
+      </footer>
+    </main>
   );
 }

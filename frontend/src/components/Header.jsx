@@ -1,30 +1,19 @@
-// Masthead: lab title, subtitle, tagline, and the nav (all from site_meta).
-export default function Header({ meta, nav }) {
-  return (
-    <header className="masthead">
-      <div className="masthead__bar">
-        <a className="masthead__mark" href="#top" aria-label="Home">
-          HCT
-        </a>
-        <nav className="masthead__nav">
-          {nav.map((label) => (
-            <a key={label} href={`#${slugifyNav(label)}`}>
-              {label}
-            </a>
-          ))}
-        </nav>
-      </div>
-      <div className="masthead__hero" id="top">
-        <h1 className="masthead__title">{meta.title || "HCT Lab"}</h1>
-        {meta.subtitle && <p className="masthead__subtitle">{meta.subtitle}</p>}
-        {meta.tagline && <p className="masthead__tagline">{meta.tagline}</p>}
-      </div>
-    </header>
-  );
-}
+// Original-style masthead: the lab logo beside the title / subtitle / tagline,
+// all sourced from the site_meta row in Supabase.
+const LOGO = "/Human Communication Technologies Lab_files/logo.png";
 
-// Map a nav label to the section id used in App ("Latest" -> "latest").
-function slugifyNav(label) {
-  const map = { Latest: "latest", People: "people", Research: "research" };
-  return map[label] || label.toLowerCase();
+export default function Header({ meta }) {
+  return (
+    <>
+      <header>
+        <img className="logo" src={LOGO} alt="HCT logo" />
+        <div className="column">
+          <h1 className="title">{meta.title || "HCT Lab"}</h1>
+          {meta.subtitle && <h3 className="subtitle">{meta.subtitle}</h3>}
+          {meta.tagline && <div className="optional">{meta.tagline}</div>}
+        </div>
+      </header>
+      <hr />
+    </>
+  );
 }
