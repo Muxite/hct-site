@@ -22,6 +22,10 @@ dev = ["pytest>=8.0", "fastapi>=0.110", "jinja2>=3", "python-multipart>=0.0.9"]
 # Heavy, edge-only: the experiment harness + plots (experiments/). Not needed by
 # the container or the core agent.
 experiments = ["matplotlib>=3.7"]
+# Heavy, edge-only: local embeddings for the RAG summary experiment (src/rag.py).
+# sentence-transformers pulls in torch; kept out of core so the agent stays light.
+# Only the paper-summary harness imports the model; unit tests inject a fake embedder.
+rag = ["sentence-transformers>=2.2", "numpy>=1.24", "pypdf>=4.0"]
 
 [project.scripts]
 hct-manager = "src.cli:main"

@@ -122,3 +122,35 @@ grant select on public.timeline     to anon, authenticated;
 grant select on public.people       to anon, authenticated;
 grant select on public.research     to anon, authenticated;
 grant select on public.site_content to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- paper_samples (EXPERIMENT, disposable): the AI summary "bake-off". For each
+-- sample paper we generate one row per (style A-E) x mode x model, so
+-- the samples page can show them side by side. Not part of the production
+-- publication flow; drop the table to remove the experiment. Written by the
+-- backend secret key; public read-only like every other table.
+--
+-- Run this block in the HCT project's SQL editor (the backend can't run DDL).
+-- ---------------------------------------------------------------------------
+create table if not exists public.paper_samples (
+  id                uuid primary key default gen_random_uuid(),
+  paper_slug        text not null,                 -- -> publications.slug (loose ref)
+  style             text not null,                 -- 'A'..'E'
+  mode              text not null,                 -- 'rag' | 'full'
+  model             text not null default '',      -- which model produced it
+  summary           text not null default '',      -- the generated overview (markdown)
+  link              text,                          -- validated canonical URL
+  oa_url            text,                          -- free full-text URL, if any
+  confidence        real,                          -- link-match confidence 0..1
+  prompt_tokens     int  not null default 0,
+  completion_tokens int  not null default 0,
+  latency_s         real not null default 0,
+  position          int  not null default 0,       -- stable display order
+  created_at        timestamptz not null default now(),
+  unique (paper_slug, style, mode, model)          -- upsert key (on_conflict)
+);
+create index if not exists paper_samples_position_idx on public.paper_samples (position);
+
+alter table public.paper_samples enable row level security;
+create policy "public read" on public.paper_samples for select to anon, authenticated using (true);
+grant select on public.paper_samples to anon, authenticated;

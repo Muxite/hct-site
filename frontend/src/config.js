@@ -4,11 +4,12 @@ export const SB_URL = import.meta.env.VITE_SB_URL;
 export const SB_PUBLISHABLE_KEY = import.meta.env.VITE_SB_PUBLISHABLE_KEY;
 
 export const TABLES = {
-  publications: "publications", // slug,title,authors[],year,type,venue,link,bibtex,description
-  timeline: "timeline", // full history: slug,title,authors[],year,date_label,blurb,position
-  people: "people", // name,role,email,photo,bio,kind,sort_order
-  research: "research", // title,tagline,description,link,image,kind,sort_order
-  siteContent: "site_content", // key -> value (jsonb)
+  publications: "publications",
+  timeline: "timeline",
+  people: "people",
+  research: "research",
+  siteContent: "site_content",
+  samples: "paper_samples",
 };
 
 // site_content keys the page renders. `site_meta` holds the header/nav; the rest

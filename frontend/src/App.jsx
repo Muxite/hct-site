@@ -4,18 +4,15 @@ import {
   getPeople,
   getResearch,
   getSiteContent,
+  getPaperSamples,
 } from "./data/db.js";
 import Header from "./components/Header.jsx";
 import Prose from "./components/Prose.jsx";
 import People from "./components/People.jsx";
 import Research from "./components/Research.jsx";
 import Publications from "./components/Publications.jsx";
+import Samples from "./components/Samples.jsx";
 
-// The site mirrors the original hct-lab.github.io layout, but every section is
-// rendered live from Supabase (publications, people, research, and the prose
-// blocks) instead of baked-in markup. Everything loads in one pass on mount.
-//
-// Section headings match the original site verbatim.
 const PROSE_TITLES = {
   vision: "Vision",
   innovation: "Innovation",
@@ -26,16 +23,52 @@ const PROSE_TITLES = {
   opportunities: "Opportunities",
 };
 
+const IS_SAMPLES =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("samples");
+
+function SamplesCallout({ samples }) {
+  const paperCount = new Set((samples || []).map((s) => s.paper_slug)).size;
+  if (!paperCount) return null;
+  return (
+    <aside className="samples-callout">
+      <div>
+        <strong>Paper page style samples</strong>
+        <p>
+          The agent retrieved article context for {paperCount} research papers and
+          drafted five paragraph styles for each one.
+        </p>
+      </div>
+      <a href="/?samples">Review options</a>
+    </aside>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getPublications(), getPeople(), getResearch(), getSiteContent()])
-      .then(([publications, people, research, content]) => {
-        if (alive) setData({ publications, people, research, content });
-      })
+    const load = IS_SAMPLES
+      ? Promise.all([getPaperSamples(), getPublications()]).then(
+          ([samples, publications]) => ({ samples, publications }),
+        )
+      : Promise.all([
+          getPublications(),
+          getPeople(),
+          getResearch(),
+          getSiteContent(),
+          getPaperSamples().catch(() => []),
+        ]).then(([publications, people, research, content, samples]) => ({
+          publications,
+          people,
+          research,
+          content,
+          samples,
+        }));
+    load
+      .then((d) => alive && setData(d))
       .catch((err) => alive && setError(err));
     return () => {
       alive = false;
@@ -59,10 +92,17 @@ export default function App() {
     );
   }
 
+  if (IS_SAMPLES) {
+    return (
+      <main>
+        <Samples samples={data.samples} publications={data.publications} />
+      </main>
+    );
+  }
+
   const content = data.content;
   const meta = content.site_meta || {};
 
-  // A prose section renders only when its site_content row exists.
   const proseSection = (key) => {
     const v = content[key];
     if (!v || !v.text) return null;
@@ -92,6 +132,7 @@ export default function App() {
         For past projects, see our old HCT site{" "}
         <a href="https://hct.ece.ubc.ca/research">research page</a>.
       </div>
+      <SamplesCallout samples={data.samples} />
 
       {proseSection("contact")}
       {proseSection("land_acknowledgment")}

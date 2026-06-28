@@ -76,6 +76,17 @@ export async function getResearch(client = getClient()) {
   return data || [];
 }
 
+export async function getPaperSamples(client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.samples)
+    .select(
+      "paper_slug,style,mode,model,summary,link,oa_url,confidence,prompt_tokens,completion_tokens,latency_s,position",
+    )
+    .order("position", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
 /** All site_content rows as a { key: value } map (one round trip). */
 export async function getSiteContent(client = getClient()) {
   const { data, error } = await client

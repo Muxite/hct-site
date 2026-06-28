@@ -28,6 +28,10 @@ class Config:
     openrouter_base_url: str = DEFAULT_OPENROUTER_BASE
     ujin_url: str = DEFAULT_UJIN_URL
     scrape_mode: str = "article"
+    # Contact email for academic-API "polite pools" (OpenAlex/Crossref ask for a
+    # mailto so they can reach you before rate-limiting). Empty is allowed; the
+    # APIs still answer, just from the shared (slower) pool.
+    contact_email: str = ""
     # obscura headless renderer (binary baked into the backend image). Used to
     # render Google Scholar profiles to text — ujin's extractors drop the table's
     # authors/venue/year, but the rendered text carries it. Disable by clearing
@@ -96,6 +100,7 @@ class Config:
             openrouter_base_url=env.get("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE),
             ujin_url=env.get("UJIN_URL", DEFAULT_UJIN_URL),
             scrape_mode=env.get("HCT_SCRAPE_MODE", "article"),
+            contact_email=env.get("HCT_CONTACT_EMAIL", "").strip(),
             obscura_bin=env.get("OBSCURA_BIN", "obscura"),
             obscura_wait=int(env.get("OBSCURA_WAIT", "6")),
             obscura_timeout=int(env.get("OBSCURA_TIMEOUT", "40")),
