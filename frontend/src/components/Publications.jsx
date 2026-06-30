@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
 
-export default function Publications({ publications }) {
+export default function Publications({ publications, authorFilter, onClearAuthor }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTime, setSelectedTime] = useState("all");
   const [selectedType, setSelectedType] = useState("all");
@@ -13,6 +13,14 @@ export default function Publications({ publications }) {
 
   // Filter publications list
   const filtered = (publications || []).filter((p) => {
+    // 0. Author filter (from clicking a person tile)
+    if (authorFilter) {
+      const hasAuthor = (p.authors || []).some(
+        (a) => a.toLowerCase().includes(authorFilter.toLowerCase()),
+      );
+      if (!hasAuthor) return false;
+    }
+
     // 1. Search Query filter (title, venue, authors, year)
     const matchesQuery =
       !searchQuery ||
@@ -47,6 +55,22 @@ export default function Publications({ publications }) {
 
   return (
     <div id="publications-list">
+      {/* Author filter banner */}
+      {authorFilter && (
+        <div className="pub-author-banner">
+          Showing publications by <strong>{authorFilter}</strong>.{" "}
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              onClearAuthor && onClearAuthor();
+            }}
+          >
+            Show all
+          </a>
+        </div>
+      )}
+
       {/* Search and Filters Panel */}
       <div className="pub-filter-controls">
         <input
@@ -93,7 +117,7 @@ export default function Publications({ publications }) {
         <div>
           Showing {filtered.length} of {publications.length} publications
         </div>
-        {(searchQuery || selectedTime !== "all" || selectedType !== "all") && (
+        {(searchQuery || selectedTime !== "all" || selectedType !== "all" || authorFilter) && (
           <a
             href="#"
             onClick={(e) => {
@@ -101,6 +125,7 @@ export default function Publications({ publications }) {
               setSearchQuery("");
               setSelectedTime("all");
               setSelectedType("all");
+              onClearAuthor && onClearAuthor();
             }}
           >
             Reset filters

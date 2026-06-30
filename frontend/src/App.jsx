@@ -47,6 +47,7 @@ function SamplesCallout({ samples }) {
 export default function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [authorFilter, setAuthorFilter] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -124,7 +125,13 @@ export default function App() {
       </div>
 
       <h2>People</h2>
-      <People people={data.people} />
+      <People people={data.people} onPersonClick={(name) => {
+        setAuthorFilter(name);
+        setTimeout(() => {
+          const el = document.getElementById("publications");
+          if (el) el.scrollIntoView({ behavior: "smooth" });
+        }, 50);
+      }} />
 
       <h2>Research</h2>
       <Research projects={data.research} />
@@ -143,7 +150,7 @@ export default function App() {
       <h2 className="section" id="publications">
         Publications
       </h2>
-      <Publications publications={data.publications} />
+      <Publications publications={data.publications} authorFilter={authorFilter} onClearAuthor={() => setAuthorFilter(null)} />
 
       <footer>
         Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.
