@@ -82,13 +82,18 @@ The program we own. Modules:
 
 A Vite single-page app. `src/data/db.js` builds the supabase-js client from Vite
 env (`VITE_SB_URL` / `VITE_SB_PUBLISHABLE_KEY`) and exposes the same getters as
-before. `App.jsx` loads everything once and renders: `Timeline` (the centerpiece —
-full history grouped by year, the publications list folded in), `People`
-(current + alumni), `Research` (current + past projects), and prose `Section`s
-from `site_content`; `PaperDetail` is a `?paper=<slug>` view. Pure presentation
-logic lives in `src/lib/format.js` (year grouping, kind splitting, labels) and is
-unit-tested. See `docs/FRONTEND-DB.md` for the table contract and
+before. `App.jsx` loads everything once and renders: `People` (current +
+alumni), `Research` (current + past projects), `Publications` (the full,
+year-grouped publication list — the site's centerpiece), and prose `Section`s
+from `site_content`. A `?samples` query param switches the whole page to
+`Samples.jsx`, a side-by-side viewer for the `paper_samples` AI summary
+bake-off (see `db/schema.sql`'s `paper_samples` comment — experimental,
+disposable). See `docs/FRONTEND-DB.md` for the table contract and
 `frontend/README.md` for dev/build.
+
+> The project-centric restructure (§ below, currently uncommitted) replaces
+> this `?samples`-query-param single-page layout with real routes via a hash
+> router — see "Project-centric restructure (in development)".
 
 ## Data flow details
 
@@ -133,6 +138,36 @@ profile), `inputs/` (style source docs).
   network or API calls in the suite.
 - JS: `npm test` in `frontend` — Node's built-in test runner (`node --test`)
   against the pure presentation helpers in `src/lib/format.js`.
+
+## Project-centric restructure (in development)
+
+**Status: uncommitted / mid-flight in the working tree — not yet live.** A
+restructure that groups papers under featured **projects** is under active
+development. Full design and data model live in
+[`PROJECTS.md`](PROJECTS.md); this is a short pointer so the feature isn't
+undiscoverable from here.
+
+Summary of the shape (see `PROJECTS.md` for the rationale and rollout order):
+
+- `publications.project_slug` (nullable) links a paper to at most one project;
+  papers without one still show up in the plain timeline as today.
+- `research` gains project-page fields (`slug`, `summary`, `hero_image`) —
+  it keeps its table name but doubles as the "projects" table.
+- `project_people` (new join table) links `people` to projects, many-to-many.
+- `backend/src/cluster.py` — one-shot LLM step that *proposes* paper→project
+  groupings into `projects.yaml` for human review; deterministic-first in
+  spirit (the YAML, not the LLM, is the source of truth once edited). Gated
+  on the OpenRouter key being "re-enabled" per its own docstring.
+- `frontend/src/lib/router.js` — a small dependency-free hash router
+  (`useHashPath`/`navigate`/`matchRoute`) added to support new routes:
+  `/`, `/projects/:slug`, `/papers/:slug`, `/samples`. Each route is a lazy
+  chunk (`frontend/src/App.jsx`).
+- `frontend/src/components/Home.jsx`, `ProjectPage.jsx`, `PaperPage.jsx` — new
+  route components (Home now leads with people + a project grid, above the
+  full publication timeline).
+
+None of this is committed yet; treat `docs/PROJECTS.md` as the live design
+doc and this section as a pointer to it, not the source of truth.
 
 ## Design decisions
 

@@ -26,12 +26,17 @@ Everything loads once on mount (`src/App.jsx`) from these Supabase tables:
 
 | Section | Source table | Component |
 | ------- | ------------ | --------- |
-| **Timeline** (centerpiece) | `timeline` (full publication history) | `components/Timeline.jsx` — grouped by year, newest first |
+| Masthead | `site_content` key `site_meta` | `components/Header.jsx` |
+| Prose sections | `site_content` (vision, contact, …) | `components/Prose.jsx` |
 | People | `people` (`kind`: current/alumni) | `components/People.jsx` |
 | Research | `research` (`kind`: current/archived) | `components/Research.jsx` |
-| Prose sections | `site_content` (vision, contact, …) | `components/Section.jsx` |
-| Masthead | `site_content` key `site_meta` | `components/Header.jsx` |
-| Paper detail (`?paper=<slug>`) | `publications` | `components/PaperDetail.jsx` |
+| **Publications** (centerpiece) | `publications` | `components/Publications.jsx` — full, year-grouped list |
+| AI summary bake-off (`?samples`) | `paper_samples` + `publications` | `components/Samples.jsx` |
+
+> A project-centric restructure (see `../docs/PROJECTS.md`) is in development
+> and, once committed, adds real routes (`/`, `/projects/:slug`,
+> `/papers/:slug`, `/samples`) via `src/lib/router.js`, replacing the
+> `?samples` query-param switch above.
 
 ## Layout
 
@@ -39,12 +44,14 @@ Everything loads once on mount (`src/App.jsx`) from these Supabase tables:
 index.html              Vite entry (loads Google Fonts + /src/main.jsx)
 src/
   config.js             Supabase URL/key (from VITE_* env) + table names
-  data/db.js            supabase-js client + typed getters (ported from hct-render)
+  data/db.js            supabase-js client + typed getters
+  data/mockClient.js     VITE_MOCK offline mode, backed by data/snapshot.json
   lib/format.js         pure helpers (groupByYear, splitByKind, labels) — TESTED
   lib/format.test.js    node --test unit tests
-  lib/useRoute.js       tiny ?paper=<slug> router (no dependency)
+  lib/prose.js          markdown-subset parser for site_content prose — TESTED
+  lib/samples.js         helpers for the paper_samples bake-off view — TESTED
   App.jsx               loads data, lays out the page
-  components/*.jsx       Header, Section, Timeline, People, Research, PaperDetail
+  components/*.jsx       Header, Prose, People, Research, Publications, Samples
   styles.css            editorial/archival theme (Fraunces + IBM Plex)
 public/assets/          image files referenced as /assets/<file> by the YAMLs
 ```
