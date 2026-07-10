@@ -1,0 +1,146 @@
+# Featured projects — the source of truth for the site's project-centric
+# restructure (see docs/PROJECTS.md). Supersedes research.yaml: sync-content
+# uses this file when present, upserting `research` + `project_people` and
+# stamping `project_slug` onto the listed papers (clearing it from any paper
+# no longer listed here). Run:  hct-manager sync-content
+#
+# `papers:` was proposed by one batched AI-clustering call over all 551
+# publications' titles/years/venues (src/cluster.py) and reviewed/pasted in
+# here; edit freely — this file is the only thing that reaches Supabase.
+# Anything not listed under a project just stays in the plain timeline.
+#
+# status: current | archived
+projects:
+  - title: Brain2Speech
+    tagline: State-of-the-art brain computer interfaces and 3D biomechanical articulatory speech synthesis
+    summary: |
+      Brain2Speech combines brain-computer interfaces with 3D biomechanical
+      articulatory speech synthesis, aiming to restore natural speech for
+      people who have lost the ability to talk.
+    link: https://hct.ece.ubc.ca/brain2speech/
+    image: ./Human Communication Technologies Lab_files/brain2speech.png
+    status: current
+    people:
+      - name: Prof. Sid Fels
+        role: lead
+    papers:
+      - mohapatra2026-beyond-direct-geometry-spring-mass-control-of
+      - wu2025-2d-immersed-boundary-method-in-vocal-tract
+      - mohapatra2024-2-5d-vocal-tract-modeling-bridging-low
+      - wu2024-modeling-vocal-tract-like-acoustic-tubes-using
+      - mohapatra2024-three-dimensional-finite-element-acoustic-analysis-of
+      - mohapatra2022-three-dimensional-finite-difference-time-domain-acoustic
+      - mohapatra2021-vocal-tract-area-function-extraction-using-ultrasound
+      - saha2021-speak-with-your-hands-using-continuous-hand
+      - saha2020-ultra2speech-a-deep-learning-framework-for-formant
+      - saha2020-learning-joint-articulatory-acoustic-representations-with-normalizing
+      - saha2019-hierarchical-deep-feature-learning-for-decoding-imagined
+      - saha2019-speak-your-mind-towards-imagined-speech-recognition
+      - saha2019-deep-learning-the-eeg-manifold-for-phonological
+      - mohapatra2018-sound-stream-towards-vocal-sound-synthesis-via
+      - zappi2017-towards-real-time-two-dimensional-wave-propagation
+  - title: ViDeX
+    tagline: Teaching and learning experiences with video
+    summary: |
+      ViDeX studies how video shapes teaching and learning experiences,
+      building tools that make video-based education more effective and
+      engaging.
+    link: https://hct.ece.ubc.ca/videx-teaching-and-learning-experiences-with-video/
+    image: ./Human Communication Technologies Lab_files/videx.png
+    status: current
+    people:
+      - name: Prof. Sid Fels
+        role: lead
+    papers:
+      - mavali2024-time-turner-a-bichronous-learning-environment-to
+      - tanprasert2024-debate-chatbots-to-facilitate-critical-thinking-on
+      - yamand2023-authoring-comments-including-typed-hyperlinks-that-reference
+      - tanprasert2023-scripted-vicarious-dialogues-educational-video-augmentation-method
+      - tanprasert2022-authoring-virtual-peer-interactions-for-lecture-videos
+      - srinivasa2021-notelink-a-point-and-shoot-linking-interface
+      - seo2021-active-learning-with-online-video-the-impact
+      - seo2020-artificial-intelligence-for-video-based-learning-at
+      - yamand2020-contextually-aware-control-of-a-user-interface
+      - yarmand2019-can-you-believe-1-21-content-and
+      - fong2018-videx-a-platform-for-personalizing-educational-videos
+      - dodson2018-active-viewing-a-study-of-video-highlighting
+      - dodson2018-an-active-viewing-framework-for-video-based
+      - fong2016-an-investigation-of-textbook-style-highlighting-for
+      - fong2014-casual-authoring-using-a-video-navigation-history
+  - title: Mixed Reality Platforms
+    summary: |
+      Mixed Reality Platforms explores 3D teleview and mixed-reality systems
+      for immersive, remote communication and collaboration.
+    link: https://hct.ece.ubc.ca/3d-teleview/
+    image: ./Human Communication Technologies Lab_files/mixedreality.png
+    status: current
+    people:
+      - name: Prof. Sid Fels
+        role: lead
+    papers:
+      - xia2025-halotouch-using-ir-multi-path-interference-to
+      - xia2022-televiewdemo-experience-the-future-of-3d-teleconferencing
+      - zhou2020-gripmarks-using-hand-grips-to-transform-in
+      - zhou2020-closer-object-looks-smaller-investigating-the-duality
+      - zhou2019-match-the-cube-investigation-of-the-head
+      - wu2019-i-got-your-point-an-investigation-of
+      - hagemann2019-investigating-spherical-fish-tank-virtual-reality-displays
+      - fafard2019-ftvr-in-vr-evaluation-of-3d-perception
+      - zhou2019-an-evaluation-of-depth-and-size-perception
+      - zhou2018-coglobe-a-co-located-multi-person-ftvr
+      - hagemann2018-here-s-looking-at-you-a-spherical
+      - fafard2018-design-and-implementation-of-a-multi-person
+      - zhou2017-3dps-an-auto-calibrated-three-dimensional-perspective
+      - fafard2017-calibration-methods-for-effective-fish-tank-vr
+      - stavness2010-pcubee-a-perspective-corrected-handheld-cubic-display
+  - title: Biomechanical Modelling for Biomedical Applications
+    summary: |
+      This project applies biomechanical modelling to biomedical problems,
+      from surgical planning to musculoskeletal simulation.
+    link: https://hct.ece.ubc.ca/bmodeling/
+    image: ./Human Communication Technologies Lab_files/biomedical.png
+    status: current
+    people:
+      - name: Prof. Sid Fels
+        role: lead
+    papers:
+      - ashjaee2026-machine-learning-outperforms-anthropometric-scaling-in-predicting
+      - aftabi2026-et-al-osteoflow-lyapunov-guided-flow-distillation
+      - tizzard2026-predicted-bone-union-propensity-in-mini-plate
+      - mende2026-improving-workflow-efficiency-of-an-intraoperative-planning
+      - ashjaee2025-subject-specific-musculoskeletal-modeling-the-future-of
+      - aftabi2025-osteoopt-a-bayesian-optimization-framework-for-enhancing
+      - aftabi2025-optimizing-bone-cuts-enhances-predicted-bone-union
+      - bettin2025-identifying-mini-plate-configurations-with-high-predicted
+      - ashjaee2024-enhancing-proximal-junctional-failure-prediction-through-subject
+      - aftabi2024-computational-models-and-their-applications-in-biomechanical
+      - aftabi2024-to-what-extent-can-mastication-functionality-be
+      - birk2024-a-novel-in-house-virtual-surgical-planning
+      - abdi2019-deep-virtual-reconstruction-of-mandibular-defects
+      - abdi2019-variational-mandible-shape-completion-for-virtual-surgical
+      - stavness2010-predicting-muscle-patterns-for-hemimandibulectomy-models
+  - title: ArtiSynth
+    tagline: A 3D mechanical modelling system combining multi-body and finite element simulations
+    summary: |
+      ArtiSynth is the lab's open-source 3D mechanical modelling platform,
+      combining multi-body and finite element simulation for biomechanics
+      research.
+    link: https://hct.ece.ubc.ca/proj-4/
+    image: ./Human Communication Technologies Lab_files/artisynth.png
+    status: current
+    people:
+      - name: Prof. Sid Fels
+        role: lead
+    papers:
+      - ashjaee2024-nalysis-of-the-lumbar-spine-l4-l5
+      - wu2024-joseph-a-paydarfar-ryan-j-halter-estimating
+      - wu2020-estimating-tongue-deformation-during-laryngoscopy-using-hybrid
+      - lloyd2019-unified-finite-element-and-multibody-simulation-using
+      - malakoutian2018-a-musculoskeletal-model-of-the-lumbar-spine
+      - masoud2018-a-musculoskeletal-model-of-the-lumbar-spine
+      - lloyd2018-new-techniques-for-combined-fem-multibody-anatomical
+      - lloyd2012-artisynth-a-fast-interactive-biomechanical-modeling-toolkit
+      - j2012-artisynth-a-fast-interactive-biomechanical-modeling-toolkit
+      - fels2006-dynamic-vocal-tract-models-using-artisynth
+      - vogt2005-artisynth-designing-a-modular-3d-articulatory-speech
+      - fels2005-artisynth-towards-realizing-an-extensible

@@ -1,13 +1,16 @@
 // Supabase connection + table/key names. The URL and publishable key come from
 // Vite env (VITE_SB_*) so they can differ per environment without code changes.
-export const SB_URL = import.meta.env.VITE_SB_URL;
-export const SB_PUBLISHABLE_KEY = import.meta.env.VITE_SB_PUBLISHABLE_KEY;
+const VITE_ENV = import.meta.env || {};
+
+export const SB_URL = VITE_ENV.VITE_SB_URL;
+export const SB_PUBLISHABLE_KEY = VITE_ENV.VITE_SB_PUBLISHABLE_KEY;
 
 export const TABLES = {
   publications: "publications",
   timeline: "timeline",
   people: "people",
   research: "research",
+  projectPeople: "project_people",
   siteContent: "site_content",
   samples: "paper_samples",
 };

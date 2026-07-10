@@ -1,16 +1,49 @@
+import { useEffect, useState } from "react";
 import Prose from "./Prose.jsx";
 import { groupSamples, sampleQuality, STYLE_NAMES } from "../lib/samples.js";
+import { getPaperSamples, getPublicationsBySlugs } from "../data/db.js";
 
 const PRIMARY_MODE = "rag";
 
-export default function Samples({ samples, publications }) {
+// The sample bake-off only ever covers a handful of papers, so it fetches its
+// own small slice (paper_samples + those specific publications) rather than
+// the whole publications table.
+export default function Samples() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    getPaperSamples()
+      .then(async (samples) => {
+        const slugs = [...new Set(samples.map((s) => s.paper_slug))];
+        const publications = await getPublicationsBySlugs(slugs);
+        return { samples, publications };
+      })
+      .then((d) => alive && setData(d))
+      .catch((err) => alive && setError(err));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (error) {
+    return (
+      <div className="state state--error">
+        Couldn’t load samples — {String(error.message || error)}
+      </div>
+    );
+  }
+  if (!data) return <div className="state">Loading…</div>;
+
+  const { samples, publications } = data;
   const papers = groupSamples(samples);
   const pubBySlug = Object.fromEntries((publications || []).map((p) => [p.slug, p]));
 
   return (
     <section className="samples">
       <p className="samples__back">
-        <a href="/">Back to main site</a>
+        <a href="#/">Back to main site</a>
       </p>
       <h2>Paper page style options</h2>
       <p className="samples__intro">

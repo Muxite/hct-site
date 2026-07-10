@@ -39,7 +39,7 @@ from typing import Any
 import yaml
 
 from src.content import dump_yaml_with_header
-from src.models import Person, ResearchProject
+from src.models import Person, ProjectPerson, ResearchProject
 
 _PEOPLE_KINDS = {"current", "alumni"}
 _RESEARCH_KINDS = {"current", "archived"}
@@ -104,6 +104,114 @@ def load_research_yaml(path: str | Path) -> list[ResearchProject]:
     return projects
 
 
+def _project_people(item: dict[str, Any], project_slug: str, where: str) -> list[ProjectPerson]:
+    """Parse a project entry's ``people:`` list into ``ProjectPerson`` links.
+
+    Each entry is either a bare name (``- Sidney Fels``) or a mapping
+    (``{name: Sidney Fels, role: lead}``). List order becomes ``sort_order``.
+    """
+
+    raw = item.pop("people", None) or []
+    if not isinstance(raw, list):
+        raise ContentError(f"{where}: 'people' must be a list")
+    links = []
+    for j, person in enumerate(raw):
+        if isinstance(person, str):
+            name, role = person, None
+        elif isinstance(person, dict) and person.get("name"):
+            name = str(person["name"])
+            role = person.get("role") or person.get("role_on_project")
+        else:
+            raise ContentError(f"{where}: people[{j}] must be a name or a {{name, role}} mapping")
+        links.append(
+            ProjectPerson(
+                project_slug=project_slug,
+                person_name=name,
+                role_on_project=str(role) if role else None,
+                sort_order=j,
+            )
+        )
+    return links
+
+
+def _project_papers(item: dict[str, Any], where: str) -> list[str]:
+    """Parse a project entry's ``papers:`` list into a list of publication slugs."""
+
+    raw = item.pop("papers", None) or []
+    if not isinstance(raw, list):
+        raise ContentError(f"{where}: 'papers' must be a list of publication slugs")
+    slugs = []
+    for j, paper in enumerate(raw):
+        slug = paper.get("slug") if isinstance(paper, dict) else paper
+        if not isinstance(slug, str) or not slug.strip():
+            raise ContentError(f"{where}: papers[{j}] must be a publication slug")
+        slugs.append(slug.strip())
+    return slugs
+
+
+def load_projects_yaml(
+    path: str | Path,
+) -> tuple[list[ResearchProject], list[ProjectPerson], list[tuple[str, str]]]:
+    """Parse ``projects.yaml`` into project rows, people links, and paper membership.
+
+    ``projects.yaml`` is the project-centric source of truth (see docs/PROJECTS.md):
+    each entry is a research project plus the lab ``people`` involved and the
+    publication ``papers`` slugs that belong to it. Returns ``(projects, links,
+    membership)`` where ``membership`` is a list of ``(project_slug, paper_slug)``
+    pairs used to stamp ``publications.project_slug``.
+    """
+
+    projects: list[ResearchProject] = []
+    links: list[ProjectPerson] = []
+    membership: list[tuple[str, str]] = []
+    for i, item in enumerate(_load_items(path, "projects")):
+        where = f"{path}: projects[{i}]"
+        kind = _take_kind(item, _RESEARCH_KINDS, where)
+        item.pop("sort_order", None)
+        # Pull the relational fields out before validating the project row.
+        people_raw = item  # people/papers popped in place by the helpers below
+        try:
+            slug = str(item.get("slug") or "").strip() or None
+            if not slug:
+                from src.models import project_slug_for
+
+                slug = project_slug_for(str(item.get("title", "")))
+            links.extend(_project_people(people_raw, slug, where))
+            paper_slugs = _project_papers(people_raw, where)
+            project = ResearchProject(**item, kind=kind, sort_order=i).with_slug()
+        except ContentError:
+            raise
+        except Exception as e:
+            raise ContentError(f"{where} invalid: {e}") from e
+        projects.append(project)
+        membership.extend((project.slug, ps) for ps in paper_slugs)
+    return projects, links, membership
+
+
+def _stamp_project_slugs(supabase: Any, membership: list[tuple[str, str]]) -> int:
+    """Set ``publications.project_slug`` from ``membership`` (only existing rows).
+
+    Clears every existing stamp first (so a paper dropped from all projects
+    reverts to timeline-only), then PATCHes each project's papers by slug. Papers
+    not present in ``publications`` are simply not matched. Returns the number of
+    (project, paper) links applied.
+    """
+
+    # Clear all current stamps in one PATCH, then re-apply per project.
+    supabase.update("publications", {"project_slug": None}, params={"project_slug": "not.is.null"})
+    by_project: dict[str, list[str]] = {}
+    for proj_slug, paper_slug in membership:
+        by_project.setdefault(proj_slug, []).append(paper_slug)
+    for proj_slug, slugs in by_project.items():
+        # Slugs are ascii kebab-case, so no quoting is needed inside in.(...).
+        supabase.update(
+            "publications",
+            {"project_slug": proj_slug},
+            params={"slug": f"in.({','.join(slugs)})"},
+        )
+    return len(membership)
+
+
 def _person_to_yaml(p: Person) -> dict[str, Any]:
     """Hand-authored fields only (name/role/email/photo/status), empties dropped."""
     d: dict[str, Any] = {"name": p.name}
@@ -153,15 +261,32 @@ def sync_content(
     research_path: str | Path,
     *,
     supabase: Any,
+    projects_path: str | Path | None = None,
 ) -> tuple[int, int]:
     """Replace the ``people`` and ``research`` tables from the YAML files.
 
-    Returns ``(people_written, research_written)``. Both files are parsed and
+    When ``projects_path`` is given and exists, it is the project source of
+    truth (see docs/PROJECTS.md): the ``research`` table, the ``project_people``
+    links, and each paper's ``publications.project_slug`` are all synced from it,
+    and ``research_path`` is ignored. Otherwise the legacy ``research.yaml`` path
+    is used and no project relationships are written.
+
+    Returns ``(people_written, research_written)``. Every file is parsed and
     validated *before* the first write, so a broken file never half-syncs.
     """
 
     people = load_people_yaml(people_path)
-    research = load_research_yaml(research_path)
+    use_projects = projects_path is not None and Path(projects_path).exists()
+    if use_projects:
+        projects, links, membership = load_projects_yaml(projects_path)
+    else:
+        research = load_research_yaml(research_path)
+
     n_people = supabase.replace("people", [p.row() for p in people], key="name")
-    n_research = supabase.replace("research", [r.row() for r in research], key="title")
+    if use_projects:
+        n_research = supabase.replace("research", [p.row() for p in projects], key="title")
+        supabase.replace("project_people", [l.row() for l in links], key="project_slug")
+        _stamp_project_slugs(supabase, membership)
+    else:
+        n_research = supabase.replace("research", [r.row() for r in research], key="title")
     return n_people, n_research

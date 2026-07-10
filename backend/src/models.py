@@ -49,6 +49,13 @@ def slug_for(authors: list[str], year: int, title: str) -> str:
     return f"{last}{year}-{title_part}".strip("-")
 
 
+def project_slug_for(title: str) -> str:
+    """Build a stable project slug from its title (e.g. ``"Brain2Speech"`` ->
+    ``"brain2speech"``). Deterministic so re-syncing keeps the same slug."""
+
+    return _slugify(title)
+
+
 # Curly/typographic punctuation -> ASCII, applied before slugifying. NFKD does
 # NOT decompose these, so "It's" and "It’s" used to produce different slugs and
 # the same paper got two rows (dedupe is by slug).
@@ -182,6 +189,9 @@ def publication_row(pub: Publication) -> dict:
     ``id`` is a server-generated uuid, so we don't send ``id``.
     """
 
+    # NB: project_slug / summary_* / image are managed by sync-content and the
+    # describe/figures stages, NOT by the run pipeline, so they are intentionally
+    # omitted here — a merge-duplicates upsert leaves absent columns untouched.
     return {
         "slug": pub.id,
         "title": pub.title,
@@ -230,16 +240,49 @@ class Person(BaseModel):
 
 
 class ResearchProject(BaseModel):
-    """A research area/project (synced from ``research.yaml``)."""
+    """A research area/project (synced from ``research.yaml``/``projects.yaml``).
+
+    ``slug`` is the stable project key (derived from the title when omitted);
+    ``summary``/``hero_image`` are the richer project-page fields added by the
+    project-centric restructure (see docs/PROJECTS.md).
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     title: str
+    slug: str | None = None
     tagline: str | None = None
     description: str | None = None
+    summary: str | None = None
     link: str | None = None
     image: str | None = None
+    hero_image: str | None = None
     kind: str = "current"  # 'current' | 'archived'
+    sort_order: int = 0
+
+    @field_validator("slug", mode="before")
+    @classmethod
+    def _blank_slug_to_none(cls, v: object) -> object:
+        return v or None
+
+    def with_slug(self) -> "ResearchProject":
+        """Return a copy with ``slug`` filled in from the title if it is blank."""
+        if self.slug:
+            return self
+        return self.model_copy(update={"slug": project_slug_for(self.title)})
+
+    def row(self) -> dict:
+        return self.with_slug().model_dump(mode="json")
+
+
+class ProjectPerson(BaseModel):
+    """One (project, person) link — a row in the ``project_people`` table."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    project_slug: str
+    person_name: str
+    role_on_project: str | None = None
     sort_order: int = 0
 
     def row(self) -> dict:

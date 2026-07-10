@@ -30,11 +30,35 @@ export function getClient() {
   return _client;
 }
 
-export async function getPublications(client = getClient()) {
+const PUB_COLS = "slug,title,authors,year,type,venue,link,bibtex,description";
+const PUB_COLS_FULL = `${PUB_COLS},project_slug,summary_plain,summary_abstract,summary_par,image`;
+
+/**
+ * One page of the full publication list, newest year first. Callers drive
+ * "load more" with `offset` — the whole 500+ row table is never fetched at
+ * once. Returns `{ rows, total }` so the caller knows when it's exhausted.
+ */
+export async function getPublicationsPage(
+  { offset = 0, limit = 30 } = {},
+  client = getClient(),
+) {
+  const { data, error, count } = await client
+    .from(TABLES.publications)
+    .select(PUB_COLS, { count: "exact" })
+    .order("year", { ascending: false })
+    .order("slug", { ascending: true })
+    .range(offset, offset + limit - 1);
+  if (error) throw error;
+  return { rows: data || [], total: count ?? 0 };
+}
+
+/** Metadata for a known set of publication slugs (e.g. the samples bake-off). */
+export async function getPublicationsBySlugs(slugs, client = getClient()) {
+  if (!slugs || !slugs.length) return [];
   const { data, error } = await client
     .from(TABLES.publications)
-    .select("slug,title,authors,year,type,venue,link,bibtex,description")
-    .order("year", { ascending: false });
+    .select(PUB_COLS)
+    .in("slug", slugs);
   if (error) throw error;
   return data || [];
 }
@@ -42,7 +66,7 @@ export async function getPublications(client = getClient()) {
 export async function getPublication(slug, client = getClient()) {
   const { data, error } = await client
     .from(TABLES.publications)
-    .select("slug,title,authors,year,type,venue,link,bibtex,description")
+    .select(PUB_COLS_FULL)
     .eq("slug", slug)
     .maybeSingle();
   if (error) throw error;
@@ -67,13 +91,74 @@ export async function getPeople(client = getClient()) {
   return data || [];
 }
 
-export async function getResearch(client = getClient()) {
+// Lighter columns for the home page's project grid; `summary` (the long
+// project-page body) is only fetched per-project on the project page itself.
+const PROJECT_GRID_COLS = "slug,title,tagline,description,image,hero_image,kind,sort_order";
+
+export async function getProjects(client = getClient()) {
   const { data, error } = await client
     .from(TABLES.research)
-    .select("title,tagline,description,link,image,kind,sort_order")
+    .select(PROJECT_GRID_COLS)
     .order("sort_order", { ascending: true });
   if (error) throw error;
   return data || [];
+}
+
+export async function getProject(slug, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.research)
+    .select(`${PROJECT_GRID_COLS},summary`)
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+/** Lab members linked to a project (join rows only — see People below for bios). */
+export async function getProjectPeople(slug, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.projectPeople)
+    .select("person_name,role_on_project,sort_order")
+    .eq("project_slug", slug)
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+/** People rows for a known set of names (used to flesh out project_people links). */
+export async function getPeopleByNames(names, client = getClient()) {
+  if (!names || !names.length) return [];
+  const { data, error } = await client
+    .from(TABLES.people)
+    .select("name,role,email,photo,bio,kind")
+    .in("name", names);
+  if (error) throw error;
+  return data || [];
+}
+
+/** Member papers for a project, small footprint (list card fields only). */
+export async function getProjectPapers(slug, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.publications)
+    .select("slug,title,authors,year,venue,link,image,summary_plain")
+    .eq("project_slug", slug)
+    .order("year", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Report whether a PostgREST error means the optional samples table is absent.
+ *
+ * :param error: Supabase query error.
+ * :returns: true when the error is the schema-cache miss for paper_samples.
+ */
+export function isMissingSamplesTable(error) {
+  const message = String(error?.message || "");
+  return (
+    error?.code === "PGRST205" ||
+    (message.includes("paper_samples") && message.includes("schema cache"))
+  );
 }
 
 export async function getPaperSamples(client = getClient()) {
@@ -83,6 +168,7 @@ export async function getPaperSamples(client = getClient()) {
       "paper_slug,style,mode,model,summary,link,oa_url,confidence,prompt_tokens,completion_tokens,latency_s,position",
     )
     .order("position", { ascending: true });
+  if (error && isMissingSamplesTable(error)) return [];
   if (error) throw error;
   return data || [];
 }

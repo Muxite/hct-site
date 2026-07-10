@@ -76,3 +76,24 @@ def test_select_returns_rows():
     rows = [{"slug": "a", "title": "A"}]
     sb = _client(lambda req: httpx.Response(200, json=rows))
     assert sb.select("publications") == rows
+
+
+def test_update_patches_matching_rows():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["method"] = req.method
+        seen["url"] = str(req.url)
+        seen["body"] = req.content.decode()
+        return httpx.Response(200, json={})
+
+    sb = _client(handler)
+    sb.update("publications", {"project_slug": "b2s"}, params={"slug": "in.(a,b)"})
+    assert seen["method"] == "PATCH"
+    assert "slug=in.%28a%2Cb%29" in seen["url"] or "slug=in.(a,b)" in seen["url"]
+    assert '"project_slug"' in seen["body"]
+
+
+def test_update_requires_filter():
+    with pytest.raises(SupabaseError, match="non-empty filter"):
+        _client(lambda req: httpx.Response(200)).update("publications", {"x": 1}, params={})

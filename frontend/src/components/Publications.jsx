@@ -1,14 +1,49 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
+import { getPublicationsPage } from "../data/db.js";
+
+const PAGE_SIZE = 40;
 
 // Publications: the lab's full history, grouped by year (newest first), in the
 // original site's flat list style — authors, title, venue/year, [type], and an
-// inline link plus a collapsible BibTeX block.
-export default function Publications({ publications }) {
-  const groups = groupByYear(publications);
+// inline link plus a collapsible BibTeX block. Loaded a page at a time (551+
+// rows total) rather than all at once — "Load more" fetches the next slice.
+export default function Publications() {
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const loadMore = (offset) => {
+    setLoading(true);
+    getPublicationsPage({ offset, limit: PAGE_SIZE })
+      .then(({ rows: page, total: t }) => {
+        setRows((prev) => (offset === 0 ? page : [...prev, ...page]));
+        setTotal(t);
+      })
+      .catch(setError)
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadMore(0);
+  }, []);
+
+  if (error) {
+    return (
+      <div id="publications-list" className="state state--error">
+        Couldn’t load publications — {String(error.message || error)}
+      </div>
+    );
+  }
+  const groups = groupByYear(rows);
+  if (!groups.length && loading) {
+    return <div id="publications-list" className="state">Loading…</div>;
+  }
   if (!groups.length) {
     return <div id="publications-list" className="state">No publications yet.</div>;
   }
+  const hasMore = total != null && rows.length < total;
   return (
     <div id="publications-list">
       {groups.map(([year, items]) => (
@@ -19,6 +54,16 @@ export default function Publications({ publications }) {
           ))}
         </div>
       ))}
+      {hasMore && (
+        <button
+          type="button"
+          className="load-more"
+          onClick={() => loadMore(rows.length)}
+          disabled={loading}
+        >
+          {loading ? "Loading…" : `Load more (${rows.length} of ${total})`}
+        </button>
+      )}
     </div>
   );
 }

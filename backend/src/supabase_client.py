@@ -89,6 +89,30 @@ class SupabaseClient:
             raise SupabaseError(f"upsert into {table} failed: {exc}") from exc
         return len(rows)
 
+    def update(
+        self, table: str, values: dict[str, Any], *, params: dict[str, str]
+    ) -> None:
+        """PATCH rows in ``table`` matching ``params`` (PostgREST filters).
+
+        Only touches existing rows — unlike ``upsert`` it never creates a stub —
+        so it is safe for setting a column (e.g. ``project_slug``) on whatever
+        publications happen to be present. ``params`` must be non-empty;
+        PostgREST refuses an unfiltered PATCH.
+        """
+
+        if not params:
+            raise SupabaseError("update requires a non-empty filter (params)")
+        try:
+            resp = self._client.patch(
+                f"{self._base}/{table}",
+                params=params,
+                headers=self._headers(prefer="return=minimal"),
+                json=values,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SupabaseError(f"update {table} failed: {exc}") from exc
+
     def delete_all(self, table: str, *, key: str) -> None:
         """Delete every row in ``table`` (filter on ``key`` is not null).
 

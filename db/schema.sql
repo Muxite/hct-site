@@ -9,9 +9,21 @@
 --   * NO insert/update/delete policies -> anon/publishable clients cannot write.
 --   * Explicit GRANT SELECT to anon/authenticated (new tables are not always
 --     auto-exposed to the Data API).
+--
+-- This file is the single source of truth and is meant to be re-run as-is on
+-- either a brand-new database or an existing one: every `create table` lists
+-- the full canonical column set (so a fresh DB gets everything at once), and
+-- is immediately followed by `alter table ... add column if not exists` for
+-- every column (a no-op on a fresh DB, additive on an older one). Indexes,
+-- constraints, RLS and grants always come *after* those alters for the same
+-- table, never before — an index on a column that only the alter adds must
+-- never run ahead of that alter.
 
 -- ---------------------------------------------------------------------------
--- publications: the structured paper list (replaces publications.yaml).
+-- publications: the structured paper list (replaces publications.yaml). A
+-- paper belongs to at most one featured project (see docs/PROJECTS.md) and
+-- carries three audience-targeted summaries (promoted from the paper_samples
+-- A/B/C styles) plus a representative image.
 -- ---------------------------------------------------------------------------
 create table if not exists public.publications (
   id          uuid primary key default gen_random_uuid(),
@@ -23,10 +35,22 @@ create table if not exists public.publications (
   venue       text,
   link        text,
   bibtex      text,
-  description text,                            -- AI-written, lab voice (optional)
+  description      text,                    -- AI-written, lab voice (optional)
+  project_slug     text,                    -- -> research.slug (loose ref); null = timeline-only
+  summary_plain    text,                    -- style A: plain-language explainer (public)
+  summary_abstract text,                    -- style B: technical abstract (researchers)
+  summary_par      text,                    -- style C: problem/approach/result (prospective grads)
+  image            text,                    -- representative figure (Supabase Storage URL)
   updated_at  timestamptz not null default now()
 );
-create index if not exists publications_year_idx on public.publications (year desc);
+alter table public.publications add column if not exists description      text;
+alter table public.publications add column if not exists project_slug     text;
+alter table public.publications add column if not exists summary_plain    text;
+alter table public.publications add column if not exists summary_abstract text;
+alter table public.publications add column if not exists summary_par      text;
+alter table public.publications add column if not exists image            text;
+create index if not exists publications_year_idx    on public.publications (year desc);
+create index if not exists publications_project_idx  on public.publications (project_slug);
 
 -- ---------------------------------------------------------------------------
 -- timeline: the full publication history, newest first (the site's centerpiece,
@@ -63,31 +87,47 @@ create table if not exists public.people (
 create index if not exists people_sort_idx on public.people (sort_order);
 
 -- ---------------------------------------------------------------------------
--- research: research areas/projects (synced from research.yaml; AI fills the
--- blank taglines into a longer description).
+-- research: featured projects (synced from research.yaml/projects.yaml; AI
+-- fills the blank taglines into a longer description). `slug`/`summary`/
+-- `hero_image` are the project-page fields added by the project-centric
+-- restructure (see docs/PROJECTS.md); `kind` is current/archived.
 -- ---------------------------------------------------------------------------
 create table if not exists public.research (
   id          uuid primary key default gen_random_uuid(),
   title       text not null,
+  slug        text,                          -- stable project key (models.project_slug_for)
   tagline     text,
-  description text,                            -- AI-written when missing
+  description text,                          -- AI-written when missing
+  summary     text,                          -- longer project-page body (see docs/PROJECTS.md)
   link        text,
   image       text,
+  hero_image  text,                          -- project hero image
   kind        text not null default 'current', -- 'current' | 'archived'
   sort_order  int  not null default 0
 );
+alter table public.research add column if not exists slug       text;
+alter table public.research add column if not exists summary    text;
+alter table public.research add column if not exists hero_image text;
+alter table public.research add column if not exists kind text not null default 'current';
+alter table public.research drop constraint if exists research_kind_check;
+alter table public.research add constraint research_kind_check check (kind in ('current', 'archived'));
 create index if not exists research_sort_idx on public.research (sort_order);
-
--- Migration (run in the SQL editor on projects created before research.kind
--- existed): projects gain a current/archived kind for the "Past projects"
--- group, mirroring people.kind.
-alter table public.research
-  add column if not exists kind text not null default 'current';
-alter table public.research
-  drop constraint if exists research_kind_check;
-alter table public.research
-  add constraint research_kind_check check (kind in ('current', 'archived'));
 create index if not exists research_kind_idx on public.research (kind);
+create unique index if not exists research_slug_key on public.research (slug);
+
+-- ---------------------------------------------------------------------------
+-- project_people: which lab members are involved in each project. People stay
+-- in `people`; this join links them per project (many-to-many — a person can
+-- be on several projects). Papers link via publications.project_slug instead.
+-- ---------------------------------------------------------------------------
+create table if not exists public.project_people (
+  id              uuid primary key default gen_random_uuid(),
+  project_slug    text not null,               -- -> research.slug (loose ref)
+  person_name     text not null,               -- -> people.name (loose ref)
+  role_on_project text,                         -- e.g. 'lead', 'collaborator' (optional)
+  sort_order      int  not null default 0
+);
+create index if not exists project_people_project_idx on public.project_people (project_slug);
 
 -- ---------------------------------------------------------------------------
 -- site_content: key/value store for free-text sections (vision, innovation,
@@ -103,25 +143,35 @@ create table if not exists public.site_content (
 -- ---------------------------------------------------------------------------
 -- RLS: enable everywhere, public read-only.
 -- ---------------------------------------------------------------------------
-alter table public.publications enable row level security;
-alter table public.timeline     enable row level security;
-alter table public.people       enable row level security;
-alter table public.research     enable row level security;
-alter table public.site_content enable row level security;
+alter table public.publications   enable row level security;
+alter table public.timeline       enable row level security;
+alter table public.people         enable row level security;
+alter table public.research       enable row level security;
+alter table public.project_people enable row level security;
+alter table public.site_content   enable row level security;
 
-create policy "public read" on public.publications for select to anon, authenticated using (true);
-create policy "public read" on public.timeline     for select to anon, authenticated using (true);
-create policy "public read" on public.people       for select to anon, authenticated using (true);
-create policy "public read" on public.research     for select to anon, authenticated using (true);
-create policy "public read" on public.site_content for select to anon, authenticated using (true);
+drop policy if exists "public read" on public.publications;
+drop policy if exists "public read" on public.timeline;
+drop policy if exists "public read" on public.people;
+drop policy if exists "public read" on public.research;
+drop policy if exists "public read" on public.project_people;
+drop policy if exists "public read" on public.site_content;
+
+create policy "public read" on public.publications   for select to anon, authenticated using (true);
+create policy "public read" on public.timeline       for select to anon, authenticated using (true);
+create policy "public read" on public.people         for select to anon, authenticated using (true);
+create policy "public read" on public.research       for select to anon, authenticated using (true);
+create policy "public read" on public.project_people for select to anon, authenticated using (true);
+create policy "public read" on public.site_content   for select to anon, authenticated using (true);
 
 -- Expose to the Data API (read only). Writes are done with the secret key,
 -- which bypasses RLS and these grants.
-grant select on public.publications to anon, authenticated;
-grant select on public.timeline     to anon, authenticated;
-grant select on public.people       to anon, authenticated;
-grant select on public.research     to anon, authenticated;
-grant select on public.site_content to anon, authenticated;
+grant select on public.publications   to anon, authenticated;
+grant select on public.timeline       to anon, authenticated;
+grant select on public.people         to anon, authenticated;
+grant select on public.research       to anon, authenticated;
+grant select on public.project_people to anon, authenticated;
+grant select on public.site_content   to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- paper_samples (EXPERIMENT, disposable): the AI summary "bake-off". For each
@@ -152,5 +202,6 @@ create table if not exists public.paper_samples (
 create index if not exists paper_samples_position_idx on public.paper_samples (position);
 
 alter table public.paper_samples enable row level security;
+drop policy if exists "public read" on public.paper_samples;
 create policy "public read" on public.paper_samples for select to anon, authenticated using (true);
 grant select on public.paper_samples to anon, authenticated;

@@ -120,22 +120,30 @@ def _cmd_sync_content(args: argparse.Namespace) -> int:
     cfg = Config.from_env()
     people_path = _content_path(cfg, args.people, "people.yaml")
     research_path = _content_path(cfg, args.research, "research.yaml")
+    projects_path = _content_path(cfg, args.projects, "projects.yaml")
     site_path = _content_path(cfg, args.site, "site.yaml")
 
     site_content = []
     if site_path.exists():
         site_content = content.load_site_yaml(site_path)
 
+    # projects.yaml, when present, supersedes research.yaml and also writes the
+    # project_people links + publications.project_slug (see docs/PROJECTS.md).
+    use_projects = projects_path.exists()
     with _make_supabase(cfg) as sb:
         n_people, n_research = sync_mod.sync_content(
-            people_path, research_path, supabase=sb
+            people_path,
+            research_path,
+            supabase=sb,
+            projects_path=projects_path if use_projects else None,
         )
         if site_content:
             sb.upsert("site_content", [c.row() for c in site_content], on_conflict="key")
 
+    research_src = projects_path.name if use_projects else research_path.name
     print(
         f"Synced content: {n_people} people ({people_path.name}), "
-        f"{n_research} research ({research_path.name}), "
+        f"{n_research} research ({research_src}), "
         f"{len(site_content)} site_content keys ({site_path.name})."
     )
     return 0
@@ -312,6 +320,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_sync.add_argument(
         "--research", default=None, help="path to research.yaml (default: inbox/, else inputs/)"
+    )
+    p_sync.add_argument(
+        "--projects",
+        default=None,
+        help="path to projects.yaml (default: inbox/, else inputs/); supersedes research.yaml",
     )
     p_sync.add_argument(
         "--site", default=None, help="path to site.yaml (default: inbox/, else inputs/)"

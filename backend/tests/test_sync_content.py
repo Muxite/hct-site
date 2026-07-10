@@ -9,6 +9,7 @@ from src.sync_content import (
     dump_people_yaml,
     dump_research_yaml,
     load_people_yaml,
+    load_projects_yaml,
     load_research_yaml,
     sync_content,
 )
@@ -44,11 +45,37 @@ research:
 class FakeSupabase:
     def __init__(self):
         self.replaced: dict[str, tuple[list[dict], str]] = {}
+        self.updates: list[tuple[str, dict, dict]] = []
 
     def replace(self, table, rows, *, key):
         rows = list(rows)
         self.replaced[table] = (rows, key)
         return len(rows)
+
+    def update(self, table, values, *, params):
+        self.updates.append((table, values, params))
+
+
+PROJECTS_YAML = """\
+projects:
+  - title: Brain2Speech
+    summary: Decoding speech from neural signals.
+    hero_image: assets/img/b2s.png
+    status: current
+    people:
+      - name: Sidney Fels
+        role: lead
+      - Grad Student
+    papers:
+      - fels2022-brain-to-speech
+      - fels2021-articulatory-synth
+  - title: ViDeX
+    slug: videx
+    status: archived
+    people: []
+    papers:
+      - fels2019-videx
+"""
 
 
 def _write(tmp_path, name, text):
@@ -106,6 +133,72 @@ def test_invalid_row_raises(tmp_path):
         load_people_yaml(p)
 
 
+def test_load_projects_yaml(tmp_path):
+    projects, links, membership = load_projects_yaml(
+        _write(tmp_path, "projects.yaml", PROJECTS_YAML)
+    )
+    # Project rows: slug derived when omitted, kept when explicit; extra fields.
+    assert [(p.slug, p.kind, p.sort_order) for p in projects] == [
+        ("brain2speech", "current", 0),
+        ("videx", "archived", 1),
+    ]
+    assert projects[0].summary == "Decoding speech from neural signals."
+    assert projects[0].hero_image == "assets/img/b2s.png"
+    # People links: bare name and {name, role} mapping, list order = sort_order.
+    assert [(l.project_slug, l.person_name, l.role_on_project, l.sort_order) for l in links] == [
+        ("brain2speech", "Sidney Fels", "lead", 0),
+        ("brain2speech", "Grad Student", None, 1),
+    ]
+    # Membership: (project_slug, paper_slug) pairs, ready for stamping.
+    assert membership == [
+        ("brain2speech", "fels2022-brain-to-speech"),
+        ("brain2speech", "fels2021-articulatory-synth"),
+        ("videx", "fels2019-videx"),
+    ]
+
+
+def test_projects_bad_people_entry_raises(tmp_path):
+    bad = "projects:\n  - title: X\n    people:\n      - {role: lead}\n"
+    with pytest.raises(ContentError, match=r"projects\[0\]"):
+        load_projects_yaml(_write(tmp_path, "projects.yaml", bad))
+
+
+def test_sync_content_projects_supersedes_research(tmp_path):
+    sb = FakeSupabase()
+    n_people, n_research = sync_content(
+        _write(tmp_path, "people.yaml", PEOPLE_YAML),
+        _write(tmp_path, "research.yaml", RESEARCH_YAML),
+        supabase=sb,
+        projects_path=_write(tmp_path, "projects.yaml", PROJECTS_YAML),
+    )
+    assert (n_people, n_research) == (3, 2)  # research came from projects.yaml
+    research_rows, _ = sb.replaced["research"]
+    assert [r["slug"] for r in research_rows] == ["brain2speech", "videx"]
+    # project_people replaced with the two brain2speech links.
+    pp_rows, pp_key = sb.replaced["project_people"]
+    assert pp_key == "project_slug"
+    assert len(pp_rows) == 2
+    # Stamping: one clear-all PATCH then one PATCH per project with papers.
+    assert sb.updates[0] == ("publications", {"project_slug": None}, {"project_slug": "not.is.null"})
+    stamped = {vals["project_slug"]: params["slug"] for _, vals, params in sb.updates[1:]}
+    assert stamped["brain2speech"] == "in.(fels2022-brain-to-speech,fels2021-articulatory-synth)"
+    assert stamped["videx"] == "in.(fels2019-videx)"
+
+
+def test_sync_content_without_projects_uses_research(tmp_path):
+    sb = FakeSupabase()
+    sync_content(
+        _write(tmp_path, "people.yaml", PEOPLE_YAML),
+        _write(tmp_path, "research.yaml", RESEARCH_YAML),
+        supabase=sb,
+        projects_path=tmp_path / "absent.yaml",  # does not exist -> legacy path
+    )
+    research_rows, _ = sb.replaced["research"]
+    assert [r["title"] for r in research_rows] == ["Brain2Speech", "ViDeX", "Old Project"]
+    assert "project_people" not in sb.replaced
+    assert sb.updates == []
+
+
 def test_sync_content_replaces_both_tables(tmp_path):
     sb = FakeSupabase()
     n_people, n_research = sync_content(
@@ -120,8 +213,9 @@ def test_sync_content_replaces_both_tables(tmp_path):
     research_rows, research_key = sb.replaced["research"]
     assert research_key == "title"
     assert research_rows[2] == {
-        "title": "Old Project", "tagline": None, "description": None,
-        "link": None, "image": None, "kind": "archived", "sort_order": 2,
+        "title": "Old Project", "slug": "old-project", "tagline": None,
+        "description": None, "summary": None, "link": None, "image": None,
+        "hero_image": None, "kind": "archived", "sort_order": 2,
     }
 
 
