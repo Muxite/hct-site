@@ -11,12 +11,14 @@ const Home = lazy(() => import("./components/Home.jsx"));
 const ProjectPage = lazy(() => import("./components/ProjectPage.jsx"));
 const PaperPage = lazy(() => import("./components/PaperPage.jsx"));
 const Samples = lazy(() => import("./components/Samples.jsx"));
+const Variants = lazy(() => import("./components/Variants.jsx"));
 
 const ROUTES = [
   ["/", "home"],
   ["/projects/:slug", "project"],
   ["/papers/:slug", "paper"],
   ["/samples", "samples"],
+  ["/variants", "variants"],
 ];
 
 function Route({ path }) {
@@ -26,7 +28,14 @@ function Route({ path }) {
   if (match.value === "project") return <ProjectPage slug={match.params.slug} />;
   if (match.value === "paper") return <PaperPage slug={match.params.slug} />;
   if (match.value === "samples") return <Samples />;
+  if (match.value === "variants") return <Variants />;
   return null;
+}
+
+// The /variants gallery is a full-bleed themed shell with its own header and
+// footer, so it opts out of the shared masthead/footer chrome.
+function isChromeless(path) {
+  return path.split("?")[0].replace(/\/$/, "") === "/variants";
 }
 
 export default function App() {
@@ -46,6 +55,14 @@ export default function App() {
     };
   }, []);
 
+  if (isChromeless(path)) {
+    return (
+      <Suspense fallback={<div className="state">Loading…</div>}>
+        <Route path={path} />
+      </Suspense>
+    );
+  }
+
   return (
     <main>
       <Header meta={meta} />
@@ -58,7 +75,8 @@ export default function App() {
         <Route path={path} />
       </Suspense>
       <footer>
-        Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.
+        Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.{" "}
+        <a href="#/variants" className="footer-link">Preview redesigns →</a>
       </footer>
     </main>
   );

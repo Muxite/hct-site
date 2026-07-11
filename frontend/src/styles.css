@@ -666,3 +666,7 @@ footer {
 .expandable__body {
   margin-top: 0.8em;
 }
+
+/* subtle link to the /variants design gallery */
+.footer-link { color: #1a56db; text-decoration: none; }
+.footer-link:hover { text-decoration: underline; }
