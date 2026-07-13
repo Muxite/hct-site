@@ -7,35 +7,35 @@ import { matchRoute, useHashPath } from "./lib/router.js";
 // samples bake-off UI, and visiting a paper page never pulls in the project
 // page's people/roster rendering. Only the active route's code (and only its
 // own scoped data) loads.
-const Home = lazy(() => import("./components/Home.jsx"));
+const SiteHome = lazy(() => import("./components/SiteHome.jsx"));
 const ProjectPage = lazy(() => import("./components/ProjectPage.jsx"));
 const PaperPage = lazy(() => import("./components/PaperPage.jsx"));
 const Samples = lazy(() => import("./components/Samples.jsx"));
-const Variants = lazy(() => import("./components/Variants.jsx"));
 
 const ROUTES = [
   ["/", "home"],
   ["/projects/:slug", "project"],
   ["/papers/:slug", "paper"],
   ["/samples", "samples"],
-  ["/variants", "variants"],
+  // Back-compat: the design gallery is now the homepage's built-in selector.
+  ["/variants", "home"],
 ];
 
-function Route({ path }) {
+function Route({ path, meta }) {
   const match = matchRoute(path, ROUTES);
   if (!match) return <div className="state">Page not found. <a href="#/">Go home</a></div>;
-  if (match.value === "home") return <Home />;
+  if (match.value === "home") return <SiteHome meta={meta} />;
   if (match.value === "project") return <ProjectPage slug={match.params.slug} />;
   if (match.value === "paper") return <PaperPage slug={match.params.slug} />;
   if (match.value === "samples") return <Samples />;
-  if (match.value === "variants") return <Variants />;
   return null;
 }
 
-// The /variants gallery is a full-bleed themed shell with its own header and
-// footer, so it opts out of the shared masthead/footer chrome.
+// The homepage is a full-bleed shell that renders its own masthead/footer (per
+// selected look), so it opts out of the shared chrome. Everything else keeps it.
 function isChromeless(path) {
-  return path.split("?")[0].replace(/\/$/, "") === "/variants";
+  const clean = path.split("?")[0].replace(/\/$/, "") || "/";
+  return clean === "/" || clean === "/variants";
 }
 
 export default function App() {
@@ -58,7 +58,7 @@ export default function App() {
   if (isChromeless(path)) {
     return (
       <Suspense fallback={<div className="state">Loading…</div>}>
-        <Route path={path} />
+        <Route path={path} meta={meta} />
       </Suspense>
     );
   }
@@ -72,11 +72,11 @@ export default function App() {
         </div>
       )}
       <Suspense fallback={<div className="state">Loading…</div>}>
-        <Route path={path} />
+        <Route path={path} meta={meta} />
       </Suspense>
       <footer>
         Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.{" "}
-        <a href="#/variants" className="footer-link">Preview redesigns →</a>
+        <a href="#/" className="footer-link">Home →</a>
       </footer>
     </main>
   );

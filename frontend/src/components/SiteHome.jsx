@@ -9,7 +9,6 @@ import {
 } from "../data/db.js";
 import {
   THEMES,
-  DEFAULT_THEME,
   isTheme,
   themeById,
   yearHistogram,
@@ -21,25 +20,42 @@ import {
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
 import { splitByKind, emailLabel, assetUrl } from "../lib/format.js";
 import CommandPalette from "./CommandPalette.jsx";
+import Header from "./Header.jsx";
+import Home from "./Home.jsx";
 
 const THEME_KEY = "hct-variant";
 const MODE_KEY = "hct-variant-mode";
 const PHOTO_FALLBACK = "/Human Communication Technologies Lab_files/person.png";
 const RENDER_CAP = 80; // how many filtered pubs to render before "load more"
 
-// The design gallery. It re-renders the whole homepage — hero, the publication
-// "spectrogram", live search, people, projects — inside a themed shell, and a
-// top switcher flips between four looks (Signal / Console / Journal / Classic)
-// without touching the live site. Every feature (search, the clickable
-// timeline, dark mode, ⌘K) works identically in each theme; only the paint
-// changes. All content is live Supabase data — nothing here is invented.
-export default function Variants() {
+// Classic is the real, content-complete master site (prose + people + projects
+// + the paginated publication list). It is the default look, so first-time
+// visitors land on the familiar site; the top selector then re-skins the whole
+// homepage into one of the redesigns (Signal / Console / Journal) without
+// changing the underlying live Supabase data.
+const DEFAULT_LOOK = "classic";
+
+// The lab homepage. A single sticky selector at the top switches the site
+// between four looks. "Classic" renders the genuine master homepage (with all
+// its prose sections); the other three re-render the record — hero, the
+// publication "spectrogram", live search, people, projects — inside a themed
+// shell. Every feature (search, the clickable timeline, dark mode, ⌘K) works
+// identically in each redesign; only the paint changes. All content is live
+// Supabase data — nothing here is invented.
+export default function SiteHome({ meta = {} }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [variant, setVariant] = useState(() => readStored(THEME_KEY, DEFAULT_THEME, isTheme));
+  const [variant, setVariant] = useState(() => readStored(THEME_KEY, DEFAULT_LOOK, isTheme));
   const [dark, setDark] = useState(() => readStored(MODE_KEY, "light") === "dark");
 
+  const isClassic = variant === "classic";
+
+  // The heavy record fetch (1000 pubs + timeline) only feeds the themed
+  // redesigns — Classic renders <Home>, which does its own lighter fetch. So we
+  // lazily load the gallery data the first time a redesign is selected and
+  // cache it thereafter.
   useEffect(() => {
+    if (isClassic || data) return;
     let alive = true;
     Promise.all([
       getPublicationsPage({ offset: 0, limit: 1000 }),
@@ -61,7 +77,7 @@ export default function Variants() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [isClassic, data]);
 
   useEffect(() => {
     try {
@@ -77,24 +93,51 @@ export default function Variants() {
   // Signal honours the toggle — so `mode` is derived, not just the raw state.
   const mode = variant === "console" ? "dark" : theme.dark && dark ? "dark" : "light";
 
+  const switcher = (
+    <Switcher
+      variant={variant}
+      onVariant={setVariant}
+      dark={dark}
+      onDark={setDark}
+      supportsDark={theme.dark && variant !== "console"}
+    />
+  );
+
+  // Classic = the untouched master site: shared masthead + the full <Home>
+  // (prose sections and all), inside the normal centred <main>.
+  if (isClassic) {
+    return (
+      <div className="vlab-gallery">
+        {switcher}
+        <main>
+          <Header meta={meta} />
+          <Home />
+          <footer>
+            Copyright {new Date().getFullYear()} © Human Communication
+            Technologies Lab.
+          </footer>
+        </main>
+      </div>
+    );
+  }
+
   if (error) {
     return (
-      <div className="state state--error">
-        Couldn’t load the gallery — {String(error.message || error)}.{" "}
-        <a href="#/">Back to the site.</a>
+      <div className="vlab-gallery">
+        {switcher}
+        <div className="state state--error">
+          Couldn’t load the redesign — {String(error.message || error)}.{" "}
+          <button className="vlab-clear" onClick={() => setVariant("classic")}>
+            Back to the classic site.
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="vlab-gallery">
-      <Switcher
-        variant={variant}
-        onVariant={setVariant}
-        dark={dark}
-        onDark={setDark}
-        supportsDark={theme.dark && variant !== "console"}
-      />
+      {switcher}
       {!data ? (
         <div className="state">Loading the lab record…</div>
       ) : (
@@ -106,15 +149,14 @@ export default function Variants() {
   );
 }
 
-// --- the switcher chrome (lives above the themed area) ----------------------
+// --- the site-look selector (sticky, above everything) ----------------------
 function Switcher({ variant, onVariant, dark, onDark, supportsDark }) {
   return (
     <div className="vlab-switch">
       <div className="vlab-switch__lead">
-        <a href="#/" className="vlab-switch__back">← Live site</a>
-        <span className="vlab-switch__tag">Design preview</span>
+        <span className="vlab-switch__tag">Site look</span>
       </div>
-      <div className="vlab-switch__tabs" role="tablist" aria-label="Design variant">
+      <div className="vlab-switch__tabs" role="tablist" aria-label="Site look">
         {THEMES.map((t) => (
           <button
             key={t.id}
@@ -133,7 +175,7 @@ function Switcher({ variant, onVariant, dark, onDark, supportsDark }) {
         className="vlab-switch__mode"
         onClick={() => onDark(!dark)}
         disabled={!supportsDark}
-        title={supportsDark ? "Toggle light / dark" : "This theme sets its own mode"}
+        title={supportsDark ? "Toggle light / dark" : "This look sets its own mode"}
       >
         {dark ? "◐ Dark" : "◑ Light"}
       </button>
@@ -316,8 +358,10 @@ function Gallery({ data }) {
       </section>
 
       <footer className="vlab-foot">
-        <span>{meta.title || "HCT Lab"} — design preview</span>
-        <a href="#/">Return to the live site →</a>
+        <span>
+          © {new Date().getFullYear()} {meta.title || "HCT Lab"}
+        </span>
+        <span className="vlab-foot__hint">Switch the site look at the top ↑</span>
       </footer>
     </>
   );

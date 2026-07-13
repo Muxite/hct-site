@@ -30,7 +30,7 @@ export const THEMES = [
   {
     id: "classic",
     label: "Classic",
-    blurb: "The current site, unchanged — for reference.",
+    blurb: "The original lab site — full prose and publication list.",
     dark: false,
   },
 ];

@@ -54,6 +54,7 @@
   white-space: nowrap;
 }
 .vlab-switch__mode:disabled { opacity: .4; cursor: not-allowed; }
+.vlab-foot__hint { color: var(--v-faint); font-size: 13px; }
 
 /* --- token contract + sensible defaults ----------------------------------- */
 .vlab {
