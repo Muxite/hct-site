@@ -87,7 +87,23 @@
 /* Reset element-name rules that leak in from the live site's global styles.css
    (e.g. `header { display: flex }`, heading sizes) — the gallery uses <header>,
    <footer>, <h1..3> semantically and styles them via .vlab-* classes only. */
-.vlab header, .vlab footer { display: block; margin: 0; }
+/* Layout leaks (display/margin) *and* paint leaks. styles.css:86 styles the
+   bare element `header` for Classic's sticky masthead — translucent white,
+   blurred, hairline bottom. `.vlab-hero` is a semantic <header>, so on the
+   light looks that slab is white-on-white (invisible) and on Console's
+   near-black background it paints a light slab under the title. `position:
+   sticky` is already neutralized by `.vlab-gallery header` in styles.css:99.
+   Note: no `padding` reset here — the global rules set none, and a `.vlab
+   header` padding declaration (0,1,1) would out-specify `.vlab-hero` (0,1,0)
+   and flatten the hero. */
+.vlab header, .vlab footer {
+  display: block;
+  margin: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom: 0;
+}
 .vlab hr { display: none; }
 /* headings/margins are all controlled by .vlab-* classes, which out-specify the
    global element rules — no blanket heading reset needed (a `.vlab h2` descendant
