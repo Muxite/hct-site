@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
+
+import pytest
 
 from src.models import ProjectPerson, ResearchProject
 from src.snapshot import RESEARCH_COLUMNS, build_snapshot, write_snapshot
+
+DB_JS = Path(__file__).resolve().parents[2] / "frontend" / "src" / "data" / "db.js"
+GRID_COLS_RE = re.compile(r"""PROJECT_GRID_COLS\s*=\s*["'`]([^"'`]+)["'`]""")
 
 PROJECTS_YAML = """\
 projects:
@@ -58,6 +65,33 @@ def test_build_snapshot_emits_exactly_the_columns_the_frontend_reads():
     assert tuple(after["research"][0]) == RESEARCH_COLUMNS
     # no stray Supabase-only column leaks into the offline snapshot
     assert "id" not in after["research"][0]
+
+
+def test_research_columns_match_what_db_js_selects():
+    """RESEARCH_COLUMNS says it is "exactly what db.js selects" — hold it to that.
+
+    A column the frontend selects but the snapshot omits reads as undefined for
+    every offline row (that is how `link` went missing once); one the snapshot
+    writes but nobody reads is dead weight. Reads the real file — no network, no
+    mocks — and skips rather than fails if the frontend moves it, so a JS
+    refactor can never break the Python suite.
+    """
+    if not DB_JS.exists():
+        pytest.skip(f"frontend db.js not found at {DB_JS}")
+    found = GRID_COLS_RE.search(DB_JS.read_text(encoding="utf-8"))
+    if not found:
+        pytest.skip(f"PROJECT_GRID_COLS not found in {DB_JS}")
+
+    # getProject() selects `${PROJECT_GRID_COLS},summary` — the grid query itself
+    # doesn't ask for summary, but the snapshot has to carry it for project pages.
+    frontend = {c.strip() for c in found.group(1).split(",") if c.strip()} | {"summary"}
+    ours = set(RESEARCH_COLUMNS)
+
+    assert frontend == ours, (
+        "snapshot.RESEARCH_COLUMNS has drifted from db.js's PROJECT_GRID_COLS — "
+        f"selected by the frontend, missing from the snapshot: {sorted(frontend - ours) or 'none'}; "
+        f"written to the snapshot, never read: {sorted(ours - frontend) or 'none'}"
+    )
 
 
 def test_write_snapshot_round_trips_yaml_to_disk(tmp_path):

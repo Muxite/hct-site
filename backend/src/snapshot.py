@@ -7,7 +7,8 @@ stale when the 60-project legacy archive landed in ``projects.yaml``.
 
 This is the offline half of the archive rollout; the online half is
 ``hct-manager sync-content``, which pushes the same YAML to Supabase. Both read
-``load_projects_yaml`` so they cannot drift.
+``load_projects_yaml``, so they share one source of truth — the published data
+still diverges until each side is actually re-run.
 
 Deterministic: local YAML in, local JSON out. No network, no LLM, no keys.
 

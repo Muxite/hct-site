@@ -222,7 +222,9 @@ offline snapshot and the live `research` table.
 `frontend/src/data/snapshot.json` backs `VITE_MOCK=1` builds. Its `research`
 and `project_people` tables are generated from `backend/data/inputs/projects.yaml`
 — the same file `hct-manager sync-content` pushes to Supabase, so the offline
-and live project lists cannot drift:
+and live project lists share one source of truth. (They still go out of step
+until each side is re-run: editing the YAML changes neither until you run the
+command below and `sync-content`.)
 
 ```bash
 cd backend && PYTHONPATH=. python3 -m src.snapshot

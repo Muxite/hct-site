@@ -51,6 +51,9 @@ hct-manager qa                   # QA report on the live Supabase data
 hct-manager health               # check the ujin scrape service
 hct-manager viewer               # localhost read+edit data viewer (needs [viewer] extra)
 
+# Offline snapshot (frontend VITE_MOCK data) — projects.yaml -> snapshot.json
+cd backend && PYTHONPATH=. python3 -m src.snapshot   # rebuild research/project_people rows
+
 # Frontend (React + Vite) — from frontend/
 cd frontend && npm install && npm run dev   # dev server (needs frontend/.env)
 npm test                                     # pure-helper unit tests (node --test)

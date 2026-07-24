@@ -84,18 +84,24 @@
 }
 .vlab > * { max-width: var(--v-maxw); margin-inline: auto; }
 
-/* Reset element-name rules that leak in from the live site's global styles.css
-   (e.g. `header { display: flex }`, heading sizes) — the gallery uses <header>,
-   <footer>, <h1..3> semantically and styles them via .vlab-* classes only. */
-/* Layout leaks (display/margin) *and* paint leaks. styles.css:86 styles the
-   bare element `header` for Classic's sticky masthead — translucent white,
-   blurred, hairline bottom. `.vlab-hero` is a semantic <header>, so on the
-   light looks that slab is white-on-white (invisible) and on Console's
-   near-black background it paints a light slab under the title. `position:
-   sticky` is already neutralized by `.vlab-gallery header` in styles.css:99.
-   Note: no `padding` reset here — the global rules set none, and a `.vlab
-   header` padding declaration (0,1,1) would out-specify `.vlab-hero` (0,1,0)
-   and flatten the hero. */
+/* Reset the bare element-name rules in the live site's global styles.css — the
+   gallery uses <header>, <footer> and <h1..3> semantically and paints them
+   through .vlab-* classes only. (Rules are named by selector here, never by
+   line number: styles.css moves under this branch and any line number written
+   down goes stale immediately.)
+   Two kinds of leak. The layout leak is live today: styles.css's
+   `header { margin-top; display: flex; flex-flow: row }` reaches .vlab-hero,
+   which is a semantic <header>. The paint leak arrives with the sticky-masthead
+   work still landing separately — that adds a second bare `header` rule
+   (translucent white, blurred, hairline bottom) for Classic's masthead, which
+   would show as a white-on-white slab on the light looks and a light band under
+   the title on Console's near-black background. That work brings its own
+   `.vlab-gallery header { position: static }` to stop the double-stick, so the
+   only thing left for this rule is the paint. Resetting both up front is free
+   and means neither branch has to remember the other.
+   No `padding` reset: the global rules set none, and a `.vlab header` padding
+   declaration (0,1,1) would out-specify `.vlab-hero` (0,1,0) and flatten the
+   hero. */
 .vlab header, .vlab footer {
   display: block;
   margin: 0;
@@ -359,8 +365,11 @@
 /* --- prose sections (site_content) ---------------------------------------- */
 /* Prose.jsx emits the same .prose markup Classic uses, so styles.css's rules
    apply here too — including a hardcoded #1155cc link blue and a bold-italic
-   sub-heading. Re-bind them to the active look's tokens. Descendant selectors
-   here are 0,2,0 and beat styles.css's 0,1,0 .prose rules. */
+   sub-heading. Re-bind them to the active look's tokens. Each selector below is
+   styles.css's own with `.vlab` prepended, so it wins by exactly one class:
+   0,2,0 over 0,1,0 for the class-only pairs (`.vlab .prose` vs `.prose`), and
+   0,2,1 over 0,1,1 wherever an element is named (`.vlab .prose a` vs
+   `.prose a`, and likewise for li/ul/ol). */
 .vlab .prose {
   max-width: 68ch;
   margin-top: 18px;
