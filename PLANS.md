@@ -93,6 +93,16 @@ in [`docs/PROJECTS.md`](docs/PROJECTS.md); a short pointer also lives in
 `docs/ARCHITECTURE.md`. Do not assume it is live in production until it lands
 as a commit.
 
+- **2026-07-24 — modernized, content-complete looks.** The three modern looks
+  render every `site_content` section (Opportunities as an accordion); the
+  gallery hero no longer inherits Classic's masthead paint; `snapshot.json`'s
+  projects are generated from `projects.yaml` (65 rows); `research`'s
+  `link` column is also now fetched, so `ProjectPage`'s outbound link renders
+  from live data instead of always being empty. Plan:
+  `docs/superpowers/plans/2026-07-24-modernized-hct-site.md`.
+  **Open:** sponsor logo grid (needs assets); `hct-manager sync-content` still
+  has to be run with a real `SB_SEC_KEY` to put the archive into production.
+
 ---
 
 ## 5. Open roadmap items

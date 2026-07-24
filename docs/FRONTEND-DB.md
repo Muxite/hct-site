@@ -207,3 +207,43 @@ sb.from("publications").select("*").range(0, 19);               // first 20
   guarantee row order otherwise.
 - **Empty is normal.** If a query returns `[]`, the table just has no rows yet;
   render a graceful fallback rather than erroring.
+
+---
+
+## 6. Maintaining this repo's data (not needed by external consumers)
+
+The rest of this doc is everything a frontend built against this database
+needs. The two subsections below are only relevant if you're working in
+*this* repo, where `projects.yaml` is the source of truth behind both the
+offline snapshot and the live `research` table.
+
+### Regenerating the offline snapshot
+
+`frontend/src/data/snapshot.json` backs `VITE_MOCK=1` builds. Its `research`
+and `project_people` tables are generated from `backend/data/inputs/projects.yaml`
+— the same file `hct-manager sync-content` pushes to Supabase, so the offline
+and live project lists cannot drift:
+
+```bash
+cd backend && PYTHONPATH=. python -m src.snapshot
+# -> snapshot: 65 research rows, 5 project_people rows
+```
+
+Every other table in the file (publications, timeline, people, site_content,
+paper_samples) is preserved verbatim; those are still hand-dumped from Supabase.
+
+### Deploy step — pushing projects to Supabase
+
+The frontend reads projects from the Supabase `research` table, so a snapshot
+rebuild alone does **not** change production. After editing `projects.yaml`,
+someone with the write key must run:
+
+```bash
+# repo root, with SB_SEC_KEY set in .env
+docker compose run --rm hct-manager sync-content
+# or, with the backend installed locally:
+cd backend && PYTHONPATH=. hct-manager sync-content
+```
+
+`splitByKind` in the frontend already renders `kind: archived` projects, so no
+frontend change is needed once the rows land.
