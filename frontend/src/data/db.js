@@ -93,7 +93,7 @@ export async function getPeople(client = getClient()) {
 
 // Lighter columns for the home page's project grid; `summary` (the long
 // project-page body) is only fetched per-project on the project page itself.
-const PROJECT_GRID_COLS = "slug,title,tagline,description,image,hero_image,kind,sort_order";
+const PROJECT_GRID_COLS = "slug,title,tagline,description,image,hero_image,kind,sort_order,link";
 
 export async function getProjects(client = getClient()) {
   const { data, error } = await client
