@@ -32,8 +32,6 @@
   flex-wrap: wrap;
 }
 .vlab-switch__lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.vlab-switch__back { color: #aab; text-decoration: none; font-size: 13px; white-space: nowrap; }
-.vlab-switch__back:hover { color: #fff; }
 .vlab-switch__tag {
   font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
   color: #7b8; border: 1px solid #2c3a2f; border-radius: 999px; padding: 2px 8px;
@@ -488,26 +486,9 @@
 .vlab[data-variant="journal"] .vlab-pub__title { font-weight: 600; }
 .vlab[data-variant="journal"] .vlab-h2 { font-weight: 500; }
 
-/* ===========================================================================
-   THEME: Classic — the current live site, verbatim. Black-on-white Inter,
-   minimal, no cards. The reference point so the deltas are legible.
-   =========================================================================== */
-.vlab[data-variant="classic"] {
-  --v-bg: #ffffff; --v-surface: #ffffff; --v-ink: #000000de; --v-muted: #888;
-  --v-faint: #aaa; --v-line: #dddddd; --v-accent: #1a56db; --v-accent-2: #1a56db;
-  --v-radius: 0px; --v-font-display: "Inter", system-ui, sans-serif;
-}
-.vlab[data-variant="classic"] .vlab-hero__title { font-weight: 500; }
-.vlab[data-variant="classic"] .vlab-stat__n,
-.vlab[data-variant="classic"] .vlab-pub__title,
-.vlab[data-variant="classic"] .vlab-project__title,
-.vlab[data-variant="classic"] .vlab-h2 { font-weight: 600; }
-.vlab[data-variant="classic"] .vlab-person,
-.vlab[data-variant="classic"] .vlab-project { background: transparent; border-color: transparent; }
-.vlab[data-variant="classic"] .vlab-person { padding: 0; }
-.vlab[data-variant="classic"] .vlab-project { border: 1px solid var(--v-line); }
-.vlab[data-variant="classic"] .vlab-search { background: #fff; }
-.vlab[data-variant="classic"] .vlab-chip.is-on { background: #000; color: #fff; }
+/* No THEME block for Classic: it never renders this markup. SiteHome returns
+   early for the classic variant and hands off to <Home>, the real master site,
+   so the .vlab element that carries [data-variant] is never mounted. */
 
 /* --- responsive ----------------------------------------------------------- */
 @media (max-width: 760px) {

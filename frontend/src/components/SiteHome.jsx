@@ -300,6 +300,26 @@ function Gallery({ data }) {
   const maxCount = hist.reduce((m, d) => Math.max(m, d.count), 0) || 1;
   const active = Boolean(query || year || type);
 
+  // The seven prose sections re-parse their markdown on every render, and the
+  // search box's state lives up here — so without this every keystroke re-ran
+  // splitSections + a dozen parseMarkdown passes over ~10 KB of text that
+  // cannot have changed. `content` is fetched once and never mutated, so this
+  // memo effectively runs the parse a single time.
+  const prose = useMemo(
+    () => (
+      <>
+        <VlabProse content={content} sectionKey="vision" />
+        <VlabProse content={content} sectionKey="innovation" />
+        <VlabOpportunities content={content} />
+        <VlabProse content={content} sectionKey="sponsors" />
+        <VlabProse content={content} sectionKey="edi" />
+        <VlabProse content={content} sectionKey="land_acknowledgment" />
+        <VlabProse content={content} sectionKey="contact" />
+      </>
+    ),
+    [content],
+  );
+
   const pickYear = (y) => {
     setYear((cur) => (cur === y ? null : y));
     // jump to the results so the filter's effect is visible
@@ -458,13 +478,7 @@ function Gallery({ data }) {
       </section>
 
       {/* The prose the legacy site carried — live site_content, nothing invented */}
-      <VlabProse content={content} sectionKey="vision" />
-      <VlabProse content={content} sectionKey="innovation" />
-      <VlabOpportunities content={content} />
-      <VlabProse content={content} sectionKey="sponsors" />
-      <VlabProse content={content} sectionKey="edi" />
-      <VlabProse content={content} sectionKey="land_acknowledgment" />
-      <VlabProse content={content} sectionKey="contact" />
+      {prose}
 
       <footer className="vlab-foot">
         <span>
