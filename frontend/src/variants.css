@@ -166,7 +166,11 @@
   padding: 0; border-top: 1px solid var(--v-line); padding-top: 22px;
 }
 .vlab-stat:last-child { grid-column: span 2; }
-.vlab-stat { margin: 0; }
+/* The markup is <dt> (label) then <dd> (number), because a description list's
+   term must precede its description; column-reverse puts the number back on
+   top visually. The label's margin-top still reads as the gap between them —
+   physical margins don't flip with the flex direction. */
+.vlab-stat { margin: 0; display: flex; flex-direction: column-reverse; }
 .vlab-stat__n {
   font-family: var(--v-font-display);
   font-size: clamp(1.7rem, 3.4vw, 2.9rem); font-weight: 600; line-height: 1;

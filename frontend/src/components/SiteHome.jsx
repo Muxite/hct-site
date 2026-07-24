@@ -17,6 +17,7 @@ import {
   filterPublications,
   pubTypes,
   buildCommandIndex,
+  PEOPLE_SECTION_ID,
 } from "../lib/variants.js";
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
 import { splitByKind, emailLabel, assetUrl } from "../lib/format.js";
@@ -281,6 +282,21 @@ function Gallery({ data }) {
   );
   useEffect(() => setLimit(RENDER_CAP), [query, year, type]);
 
+  // ⌘K hits that have no page of their own (people) navigate to this page with
+  // `?to=<section id>`. The router drops the query string, so the link resolves
+  // to the homepage route; the scroll is ours to do. A plain "#…" fragment
+  // can't be used — the URL's one hash already belongs to the router.
+  useEffect(() => {
+    const jump = () => {
+      const q = window.location.hash.split("?")[1];
+      const to = q && new URLSearchParams(q).get("to");
+      if (to) document.getElementById(to)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    jump();
+    window.addEventListener("hashchange", jump);
+    return () => window.removeEventListener("hashchange", jump);
+  }, []);
+
   const maxCount = hist.reduce((m, d) => Math.max(m, d.count), 0) || 1;
   const active = Boolean(query || year || type);
 
@@ -425,13 +441,13 @@ function Gallery({ data }) {
       </section>
 
       {/* PEOPLE */}
-      <section className="vlab-section" id="vlab-people">
+      <section className="vlab-section" id={PEOPLE_SECTION_ID}>
         <h2 className="vlab-h2">People</h2>
         <Roster people={people} />
       </section>
 
       {/* PROJECTS — only the current ones; past projects are one click away */}
-      <section className="vlab-section">
+      <section className="vlab-section" id="vlab-projects">
         <h2 className="vlab-h2">Projects</h2>
         <ProjectGrid projects={featuredProjects} />
         {archivedCount > 0 && (
@@ -460,11 +476,14 @@ function Gallery({ data }) {
   );
 }
 
+// The term precedes its description, as a description list requires — screen
+// readers announce them in DOM order. `.vlab-stat` is column-reverse so the
+// number still reads above its label.
 function Stat({ n, label, plain }) {
   return (
     <div className="vlab-stat">
-      <dd className="vlab-stat__n">{plain ? n ?? "—" : (n ?? 0).toLocaleString()}</dd>
       <dt className="vlab-stat__label">{label}</dt>
+      <dd className="vlab-stat__n">{plain ? n ?? "—" : (n ?? 0).toLocaleString()}</dd>
     </div>
   );
 }

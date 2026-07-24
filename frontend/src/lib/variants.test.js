@@ -9,7 +9,9 @@ import {
   searchCommands,
   isTheme,
   themeById,
+  PEOPLE_SECTION_ID,
 } from "./variants.js";
+import { matchRoute } from "./router.js";
 
 test("yearHistogram fills gap years with zero and sorts ascending", () => {
   const h = yearHistogram([{ year: 2000 }, { year: 2000 }, { year: 2003 }]);
@@ -34,7 +36,7 @@ test("buildStats derives span, peak, and counts", () => {
     pubTotal: 10,
     timeline: [{ year: 1990 }, { year: 1990 }, { year: 1992 }],
     people: [{}, {}],
-    projects: [{}],
+    projects: [{ kind: "current" }],
   });
   assert.equal(s.publications, 10);
   assert.equal(s.people, 2);
@@ -44,6 +46,25 @@ test("buildStats derives span, peak, and counts", () => {
   assert.equal(s.years, 3);
   assert.equal(s.peakYear, 1990);
   assert.equal(s.peakCount, 2);
+});
+
+// The hero labels this number "active projects" and teases the archived ones
+// separately, so archived rows must not be counted twice over.
+test("buildStats counts only non-archived projects, but every person", () => {
+  const s = buildStats({
+    pubTotal: 0,
+    timeline: [],
+    people: [{ kind: "current" }, { kind: "alumni" }, { kind: "alumni" }],
+    projects: [
+      { kind: "current" },
+      { kind: "archived" },
+      { kind: "archived" },
+      { kind: "current" },
+      {}, // no kind at all — a live row that simply never set one
+    ],
+  });
+  assert.equal(s.projects, 3);
+  assert.equal(s.people, 3); // the roster shows alumni too, so all of them count
 });
 
 const PUBS = [
@@ -74,7 +95,25 @@ test("pubTypes returns present types in canonical order", () => {
   assert.deepEqual(pubTypes(PUBS), ["article", "inproceedings", "misc"]);
 });
 
-test("buildCommandIndex links papers/projects to pages, people to roster", () => {
+// App.jsx's route table, mirrored. Asserting an href's *shape* proved nothing —
+// "#/variants#vlab-people" looked right and resolved to no route at all — so
+// these tests run the emitted hrefs through the real matcher instead.
+const APP_ROUTES = [
+  ["/", "home"],
+  ["/projects", "projects-index"],
+  ["/projects/:slug", "project"],
+  ["/papers", "papers-index"],
+  ["/papers/:slug", "paper"],
+  ["/samples", "samples"],
+  ["/variants", "home"],
+];
+
+// What the app actually resolves an href to: CommandPalette assigns it to
+// window.location.hash, and router.currentPath() strips the "#" and drops the
+// query string. Note it does *not* split on a second "#".
+const routedPath = (href) => href.replace(/^#/, "").split("?")[0];
+
+test("buildCommandIndex emits hrefs that resolve to real routes", () => {
   const idx = buildCommandIndex({
     publications: [{ title: "P", slug: "p-1", authors: ["A"], year: 2020 }],
     people: [{ name: "Sid", role: "Director" }],
@@ -83,9 +122,31 @@ test("buildCommandIndex links papers/projects to pages, people to roster", () =>
   const paper = idx.find((i) => i.kind === "paper");
   const person = idx.find((i) => i.kind === "person");
   const project = idx.find((i) => i.kind === "project");
+
   assert.equal(paper.href, "#/papers/p-1");
   assert.equal(project.href, "#/projects/b2s");
-  assert.match(person.href, /vlab-people/);
+
+  for (const item of [paper, project, person]) {
+    const match = matchRoute(routedPath(item.href), APP_ROUTES);
+    assert.ok(match, `${item.kind} href ${item.href} matches no route`);
+  }
+  assert.equal(matchRoute(routedPath(paper.href), APP_ROUTES).value, "paper");
+  assert.equal(matchRoute(routedPath(project.href), APP_ROUTES).value, "project");
+  // People have no page of their own: they land on the gallery homepage, which
+  // scrolls to the roster using the ?to= parameter.
+  assert.equal(matchRoute(routedPath(person.href), APP_ROUTES).value, "home");
+  assert.equal(new URLSearchParams(person.href.split("?")[1]).get("to"), PEOPLE_SECTION_ID);
+});
+
+test("buildCommandIndex falls back to a routable href when a row has no slug", () => {
+  const idx = buildCommandIndex({
+    publications: [{ title: "No slug" }],
+    people: [],
+    projects: [{ title: "No slug either" }],
+  });
+  for (const item of idx) {
+    assert.ok(matchRoute(routedPath(item.href), APP_ROUTES), `${item.href} matches no route`);
+  }
 });
 
 test("searchCommands ranks title-prefix matches first and caps results", () => {

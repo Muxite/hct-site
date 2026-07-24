@@ -67,7 +67,13 @@ export function yearHistogram(entries) {
   return out;
 }
 
-/** Headline counters for the hero. `people`/`projects` count current members. */
+/**
+ * Headline counters for the hero. `publications` is the whole record and
+ * `people` is the whole roster (current + alumni), but `projects` counts only
+ * the non-archived ones — the hero labels it "active projects" and sits right
+ * above a teaser for the archived ones, so counting the archive here would
+ * make the two numbers contradict each other.
+ */
 export function buildStats({ pubTotal, timeline, people, projects }) {
   const hist = yearHistogram(timeline);
   const first = hist.length ? hist[0].year : null;
@@ -76,7 +82,7 @@ export function buildStats({ pubTotal, timeline, people, projects }) {
   return {
     publications: pubTotal ?? (timeline || []).length,
     people: (people || []).length,
-    projects: (projects || []).length,
+    projects: (projects || []).filter((p) => p?.kind !== "archived").length,
     firstYear: first,
     lastYear: last,
     years: first != null && last != null ? last - first + 1 : 0,
@@ -114,10 +120,23 @@ export function pubTypes(pubs) {
   return [...known, ...extra];
 }
 
+/** The gallery's people section — the `?to=` target ⌘K sends person hits to. */
+export const PEOPLE_SECTION_ID = "vlab-people";
+
 /**
  * Flat, searchable index for the ⌘K palette. Papers and projects link to their
- * own pages; people scroll to the roster on the gallery page (they have no
- * dedicated route). `kind` drives the little tag shown in the palette.
+ * own pages; people have no dedicated route, so they point at the homepage with
+ * `?to=vlab-people` and SiteHome scrolls to the roster from there.
+ *
+ * Every href here must resolve to a real route: the palette assigns it to
+ * `window.location.hash`, and the router derives the path by stripping the
+ * leading "#" and splitting on "?" — it does *not* split on a second "#". So a
+ * fragment-style "#/variants#vlab-people" would become the path
+ * "/variants#vlab-people" and match nothing ("Page not found"), whereas a query
+ * string is discarded and leaves the plain "/" route. variants.test.js asserts
+ * this by matching each emitted href against the real route table.
+ *
+ * `kind` drives the little tag shown in the palette.
  */
 export function buildCommandIndex({ publications, people, projects }) {
   const items = [];
@@ -134,7 +153,7 @@ export function buildCommandIndex({ publications, people, projects }) {
       kind: "person",
       title: m.name,
       sub: m.role || "",
-      href: "#/variants#vlab-people",
+      href: `#/?to=${PEOPLE_SECTION_ID}`,
     });
   }
   for (const p of publications || []) {
