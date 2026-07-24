@@ -9,12 +9,16 @@ import { matchRoute, useHashPath } from "./lib/router.js";
 // own scoped data) loads.
 const SiteHome = lazy(() => import("./components/SiteHome.jsx"));
 const ProjectPage = lazy(() => import("./components/ProjectPage.jsx"));
+const ProjectsPage = lazy(() => import("./components/ProjectsPage.jsx"));
 const PaperPage = lazy(() => import("./components/PaperPage.jsx"));
+const PapersPage = lazy(() => import("./components/PapersPage.jsx"));
 const Samples = lazy(() => import("./components/Samples.jsx"));
 
 const ROUTES = [
   ["/", "home"],
+  ["/projects", "projects-index"],
   ["/projects/:slug", "project"],
+  ["/papers", "papers-index"],
   ["/papers/:slug", "paper"],
   ["/samples", "samples"],
   // Back-compat: the design gallery is now the homepage's built-in selector.
@@ -25,7 +29,9 @@ function Route({ path, meta }) {
   const match = matchRoute(path, ROUTES);
   if (!match) return <div className="state">Page not found. <a href="#/">Go home</a></div>;
   if (match.value === "home") return <SiteHome meta={meta} />;
+  if (match.value === "projects-index") return <ProjectsPage />;
   if (match.value === "project") return <ProjectPage slug={match.params.slug} />;
+  if (match.value === "papers-index") return <PapersPage />;
   if (match.value === "paper") return <PaperPage slug={match.params.slug} />;
   if (match.value === "samples") return <Samples />;
   return null;
