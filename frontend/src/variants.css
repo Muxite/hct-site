@@ -352,6 +352,34 @@
 .vlab-cmd__empty { padding: 24px; text-align: center; color: var(--v-muted); }
 .vlab-cmd__foot { display: flex; gap: 16px; padding: 10px 16px; border-top: 1px solid var(--v-line); font-size: 12px; color: var(--v-faint); }
 
+/* --- prose sections (site_content) ---------------------------------------- */
+/* Prose.jsx emits the same .prose markup Classic uses, so styles.css's rules
+   apply here too — including a hardcoded #1155cc link blue and a bold-italic
+   sub-heading. Re-bind them to the active look's tokens. Descendant selectors
+   here are 0,2,0 and beat styles.css's 0,1,0 .prose rules. */
+.vlab .prose {
+  max-width: 68ch;
+  margin-top: 18px;
+  color: var(--v-muted);
+  line-height: 1.62;
+  font-size: 15.5px;
+}
+.vlab .prose a { color: var(--v-accent-2); text-decoration: underline; text-underline-offset: 2px; }
+.vlab .prose a:hover { color: var(--v-accent); }
+.vlab .prose strong { color: var(--v-ink); font-weight: 600; }
+.vlab .prose__heading {
+  font-family: var(--v-font-display);
+  font-style: normal; font-weight: 600; font-size: 1rem;
+  color: var(--v-ink); margin: 1.6em 0 .5em;
+}
+.vlab .prose li { margin: .3em 0; }
+.vlab .prose ul, .vlab .prose ol { padding-left: 1.4em; }
+
+/* Console labels its sub-headings like the section headers; Journal keeps the
+   scholarly italic it uses everywhere else. */
+.vlab[data-variant="console"] .prose__heading::before { content: "> "; color: var(--v-accent-2); }
+.vlab[data-variant="journal"] .prose__heading { font-style: italic; font-weight: 500; }
+
 /* ===========================================================================
    THEME: Signal — warm modern, light + dark. The friendly everyday site.
    Accent is a spectrogram pairing: signal-orange (warm/loud) + deep cyan

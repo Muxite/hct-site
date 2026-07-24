@@ -23,6 +23,7 @@ import { splitByKind, emailLabel, assetUrl } from "../lib/format.js";
 import CommandPalette from "./CommandPalette.jsx";
 import Header from "./Header.jsx";
 import Home from "./Home.jsx";
+import Prose from "./Prose.jsx";
 
 const THEME_KEY = "hct-variant";
 const MODE_KEY = "hct-variant-mode";
@@ -180,6 +181,33 @@ function Switcher({ variant, onVariant, dark, onDark, supportsDark }) {
         {dark ? "◐ Dark" : "◑ Light"}
       </button>
     </div>
+  );
+}
+
+// The prose the legacy site carried — the same site_content keys Classic
+// renders via <Home>. Order here is deliberate: the record and the people come
+// first (this redesign's centerpiece), then what the lab is for, who funds it,
+// what it stands for, and how to reach it.
+const VLAB_PROSE_TITLES = {
+  vision: "Vision",
+  innovation: "Innovation",
+  sponsors: "Sponsors",
+  edi: "Equity, Diversity, Inclusion + Indigeneity",
+  land_acknowledgment: "Land Acknowledgment",
+  contact: "Contact",
+};
+
+// One themed prose section. Renders nothing when the key is missing from
+// site_content, so a partial database degrades quietly instead of showing an
+// empty heading.
+function VlabProse({ content, sectionKey, title }) {
+  const value = content?.[sectionKey];
+  if (!value || !value.text) return null;
+  return (
+    <section className="vlab-section" id={`vlab-${sectionKey}`}>
+      <h2 className="vlab-h2">{title || VLAB_PROSE_TITLES[sectionKey]}</h2>
+      <Prose text={value.text} />
+    </section>
   );
 }
 
@@ -377,6 +405,15 @@ function Gallery({ data }) {
           </a>
         )}
       </section>
+
+      {/* The prose the legacy site carried — live site_content, nothing invented */}
+      <VlabProse content={content} sectionKey="vision" />
+      <VlabProse content={content} sectionKey="innovation" />
+      <VlabProse content={content} sectionKey="opportunities" title="Opportunities" />
+      <VlabProse content={content} sectionKey="sponsors" />
+      <VlabProse content={content} sectionKey="edi" />
+      <VlabProse content={content} sectionKey="land_acknowledgment" />
+      <VlabProse content={content} sectionKey="contact" />
 
       <footer className="vlab-foot">
         <span>
