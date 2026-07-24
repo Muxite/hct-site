@@ -111,6 +111,16 @@
 
 /* --- hero + spectrogram --------------------------------------------------- */
 .vlab-hero { display: block; padding: clamp(48px, 8vw, 104px) 0 40px; }
+/* Wide viewports: name on the left, the record's headline numbers on the right,
+   so the hero reads as intentional rather than half-drawn. The 1.4fr/1fr split
+   keeps the title's 16ch measure intact. */
+.vlab-hero__top {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: clamp(24px, 5vw, 72px);
+  align-items: end;
+}
+.vlab-hero__lead { min-width: 0; }
 .vlab-hero__eyebrow {
   font-family: var(--v-font-mono);
   font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
@@ -151,10 +161,11 @@
 
 /* --- stats ---------------------------------------------------------------- */
 .vlab-stats {
-  display: grid; grid-template-columns: repeat(5, 1fr);
-  gap: clamp(12px, 2vw, 28px); margin: clamp(36px, 5vw, 56px) 0 0;
-  padding: 0; border-top: 1px solid var(--v-line); padding-top: 28px;
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: clamp(12px, 2vw, 28px) clamp(16px, 3vw, 36px); margin: 0;
+  padding: 0; border-top: 1px solid var(--v-line); padding-top: 22px;
 }
+.vlab-stat:last-child { grid-column: span 2; }
 .vlab-stat { margin: 0; }
 .vlab-stat__n {
   font-family: var(--v-font-display);
@@ -427,8 +438,8 @@
 
 /* --- responsive ----------------------------------------------------------- */
 @media (max-width: 760px) {
-  .vlab-stats { grid-template-columns: repeat(2, 1fr); row-gap: 24px; }
-  .vlab-stat:last-child { grid-column: span 2; }
+  .vlab-hero__top { grid-template-columns: 1fr; gap: 32px; align-items: start; }
+  .vlab-stats { row-gap: 24px; }
   .vlab-pubyear { grid-template-columns: 1fr; gap: 4px; }
   .vlab-pubyear__label { position: static; }
   .vlab-switch { justify-content: center; }

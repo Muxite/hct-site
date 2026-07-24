@@ -241,11 +241,25 @@ function Gallery({ data }) {
 
       {/* HERO — the lab's 43-year publication cadence as a spectrogram */}
       <header className="vlab-hero">
-        <p className="vlab-hero__eyebrow">
-          UBC · Electrical &amp; Computer Engineering · est. {stats.firstYear}
-        </p>
-        <h1 className="vlab-hero__title">{meta.subtitle || "Human Communication Technologies Lab"}</h1>
-        <p className="vlab-hero__tagline">{meta.tagline}</p>
+        {/* Two-column on wide viewports: the lab's name reads left, the record's
+            headline numbers sit right. Collapses to one column under 760px. */}
+        <div className="vlab-hero__top">
+          <div className="vlab-hero__lead">
+            <p className="vlab-hero__eyebrow">
+              UBC · Electrical &amp; Computer Engineering · est. {stats.firstYear}
+            </p>
+            <h1 className="vlab-hero__title">{meta.subtitle || "Human Communication Technologies Lab"}</h1>
+            <p className="vlab-hero__tagline">{meta.tagline}</p>
+          </div>
+
+          <dl className="vlab-stats">
+            <Stat n={stats.publications} label="publications" />
+            <Stat n={stats.years} label="years active" />
+            <Stat n={stats.people} label="lab members" />
+            <Stat n={stats.projects} label="active projects" />
+            <Stat n={stats.peakYear} label={`peak year · ${stats.peakCount} papers`} plain />
+          </dl>
+        </div>
 
         <figure className="vlab-spectro" aria-label="Publications per year since first record">
           <div className="vlab-spectro__bars">
@@ -272,14 +286,6 @@ function Gallery({ data }) {
             <span>{stats.lastYear}</span>
           </figcaption>
         </figure>
-
-        <dl className="vlab-stats">
-          <Stat n={stats.publications} label="publications" />
-          <Stat n={stats.years} label="years active" />
-          <Stat n={stats.people} label="lab members" />
-          <Stat n={stats.projects} label="active projects" />
-          <Stat n={stats.peakYear} label={`peak year · ${stats.peakCount} papers`} plain />
-        </dl>
       </header>
 
       {/* SEARCH + FILTER over the full record */}
