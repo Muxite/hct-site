@@ -11,7 +11,7 @@ This is the offline half of the archive rollout; the online half is
 
 Deterministic: local YAML in, local JSON out. No network, no LLM, no keys.
 
-    cd backend && PYTHONPATH=. python -m src.snapshot
+    cd backend && PYTHONPATH=. python3 -m src.snapshot
 """
 
 from __future__ import annotations

@@ -94,8 +94,10 @@ Two sites are actually in play, and both are load-bearing:
   discover the other three decades of lab output short of knowing to go dig
   up the old WordPress URL.
   **Addressed 2026-07-24** — 65 projects (5 current + 60 archived) in
-  `projects.yaml`; offline via `python -m src.snapshot`, production via
-  `hct-manager sync-content`.
+  `projects.yaml`, rendering offline via the snapshot builder
+  (`backend/src/snapshot.py`). Production is a separate, **not yet done**
+  step: someone still has to run `hct-manager sync-content` with a real
+  `SB_SEC_KEY` to push these rows to Supabase.
 - **No dedup or link-rot check between the three sources** (github.io yaml,
   WordPress archive, and now Supabase). `research.yaml`'s `link:` fields
   point at pages we don't own and have no health check on — the QA loop

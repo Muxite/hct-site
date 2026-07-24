@@ -225,7 +225,7 @@ and `project_people` tables are generated from `backend/data/inputs/projects.yam
 and live project lists cannot drift:
 
 ```bash
-cd backend && PYTHONPATH=. python -m src.snapshot
+cd backend && PYTHONPATH=. python3 -m src.snapshot
 # -> snapshot: 65 research rows, 5 project_people rows
 ```
 
