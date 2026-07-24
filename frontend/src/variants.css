@@ -380,6 +380,38 @@
 .vlab[data-variant="console"] .prose__heading::before { content: "> "; color: var(--v-accent-2); }
 .vlab[data-variant="journal"] .prose__heading { font-style: italic; font-weight: 500; }
 
+/* --- accordion (Opportunities) -------------------------------------------- */
+.vlab-acc { margin-top: 20px; border-top: 1px solid var(--v-line); }
+.vlab-acc__item { border-bottom: 1px solid var(--v-line); }
+.vlab-acc__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px 2px; cursor: pointer; list-style: none;
+  font-family: var(--v-font-display); font-size: 1.02rem; font-weight: 600;
+  color: var(--v-ink);
+}
+.vlab-acc__head::-webkit-details-marker { display: none; }
+.vlab-acc__head:hover { color: var(--v-accent); }
+.vlab-acc__head:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 2px; }
+/* A "+" that becomes a "−" when the panel is open — drawn, not a glyph, so it
+   stays crisp in every look. */
+.vlab-acc__mark { position: relative; width: 14px; height: 14px; flex-shrink: 0; }
+.vlab-acc__mark::before, .vlab-acc__mark::after {
+  content: ""; position: absolute; background: var(--v-faint);
+  transition: transform .18s ease, opacity .18s ease;
+}
+.vlab-acc__mark::before { inset: 6px 0; height: 2px; }
+.vlab-acc__mark::after { inset: 0 6px; width: 2px; }
+.vlab-acc__item[open] .vlab-acc__mark::after { transform: scaleY(0); opacity: 0; }
+.vlab-acc__item[open] .vlab-acc__head { color: var(--v-accent); }
+.vlab-acc__body { padding: 0 0 20px; }
+.vlab-acc__body .prose { margin-top: 0; }
+.vlab[data-variant="console"] .vlab-acc__head::before { content: "[ ] "; color: var(--v-faint); font-size: 12px; }
+.vlab[data-variant="console"] .vlab-acc__item[open] .vlab-acc__head::before { content: "[x] "; color: var(--v-accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .vlab-acc__mark::before, .vlab-acc__mark::after { transition: none; }
+}
+
 /* ===========================================================================
    THEME: Signal — warm modern, light + dark. The friendly everyday site.
    Accent is a spectrogram pairing: signal-orange (warm/loud) + deep cyan

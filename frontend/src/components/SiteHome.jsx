@@ -24,6 +24,7 @@ import CommandPalette from "./CommandPalette.jsx";
 import Header from "./Header.jsx";
 import Home from "./Home.jsx";
 import Prose from "./Prose.jsx";
+import { splitSections } from "../lib/sections.js";
 
 const THEME_KEY = "hct-variant";
 const MODE_KEY = "hct-variant-mode";
@@ -207,6 +208,40 @@ function VlabProse({ content, sectionKey, title }) {
     <section className="vlab-section" id={`vlab-${sectionKey}`}>
       <h2 className="vlab-h2">{title || VLAB_PROSE_TITLES[sectionKey]}</h2>
       <Prose text={value.text} />
+    </section>
+  );
+}
+
+// Opportunities is five audience-specific asks (undergrads, PhD/Master, RAs,
+// post-docs, visitors) — 3 KB of prose in which every reader wants exactly one
+// paragraph. Native <details> panels: keyboard-accessible, no dependency, and
+// they honour prefers-reduced-motion for free. If the content ever loses its
+// sub-headings, `sections` comes back empty and this falls through to the same
+// flat prose Classic shows — completeness is the requirement, the accordion is
+// polish.
+function VlabOpportunities({ content }) {
+  const value = content?.opportunities;
+  if (!value || !value.text) return null;
+  const { introText, sections } = splitSections(value.text);
+  if (!sections.length) return <VlabProse content={content} sectionKey="opportunities" title="Opportunities" />;
+
+  return (
+    <section className="vlab-section" id="vlab-opportunities">
+      <h2 className="vlab-h2">Opportunities</h2>
+      {introText && <Prose text={introText} />}
+      <div className="vlab-acc">
+        {sections.map((s, i) => (
+          <details className="vlab-acc__item" key={s.title} open={i === 0}>
+            <summary className="vlab-acc__head">
+              <span className="vlab-acc__title">{s.title}</span>
+              <span className="vlab-acc__mark" aria-hidden="true" />
+            </summary>
+            <div className="vlab-acc__body">
+              <Prose text={s.text} />
+            </div>
+          </details>
+        ))}
+      </div>
     </section>
   );
 }
@@ -409,7 +444,7 @@ function Gallery({ data }) {
       {/* The prose the legacy site carried — live site_content, nothing invented */}
       <VlabProse content={content} sectionKey="vision" />
       <VlabProse content={content} sectionKey="innovation" />
-      <VlabProse content={content} sectionKey="opportunities" title="Opportunities" />
+      <VlabOpportunities content={content} />
       <VlabProse content={content} sectionKey="sponsors" />
       <VlabProse content={content} sectionKey="edi" />
       <VlabProse content={content} sectionKey="land_acknowledgment" />
