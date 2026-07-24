@@ -9,6 +9,7 @@ import {
 } from "../data/db.js";
 import {
   THEMES,
+  DEFAULT_THEME,
   isTheme,
   themeById,
   yearHistogram,
@@ -28,12 +29,11 @@ const MODE_KEY = "hct-variant-mode";
 const PHOTO_FALLBACK = "/Human Communication Technologies Lab_files/person.png";
 const RENDER_CAP = 80; // how many filtered pubs to render before "load more"
 
-// Classic is the real, content-complete master site (prose + people + projects
-// + the paginated publication list). It is the default look, so first-time
-// visitors land on the familiar site; the top selector then re-skins the whole
-// homepage into one of the redesigns (Signal / Console / Journal) without
-// changing the underlying live Supabase data.
-const DEFAULT_LOOK = "classic";
+// Signal is now the default look, so first-time visitors land on the modern
+// redesign; Classic — the real, content-complete master site (prose + people
+// + projects + the paginated publication list) — remains fully available one
+// click away via the top selector. Nothing about Classic's own content or
+// behavior changes; only which look loads first.
 
 // The lab homepage. A single sticky selector at the top switches the site
 // between four looks. "Classic" renders the genuine master homepage (with all
@@ -45,7 +45,7 @@ const DEFAULT_LOOK = "classic";
 export default function SiteHome({ meta = {} }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [variant, setVariant] = useState(() => readStored(THEME_KEY, DEFAULT_LOOK, isTheme));
+  const [variant, setVariant] = useState(() => readStored(THEME_KEY, DEFAULT_THEME, isTheme));
   const [dark, setDark] = useState(() => readStored(MODE_KEY, "light") === "dark");
 
   const isClassic = variant === "classic";
@@ -200,6 +200,13 @@ function Gallery({ data }) {
     [pubTotal, timeline, people, projects],
   );
   const types = useMemo(() => pubTypes(publications), [publications]);
+  // Featured = current status; the rest (past/archived projects) only show
+  // up when you click through to the full projects page.
+  const [featuredProjects, archivedProjectsList] = useMemo(
+    () => splitByKind(projects, "archived"),
+    [projects],
+  );
+  const archivedCount = archivedProjectsList.length;
   const cmdIndex = useMemo(
     () => buildCommandIndex({ publications, people, projects }),
     [publications, people, projects],
@@ -286,7 +293,10 @@ function Gallery({ data }) {
                 <button className="vlab-clear" onClick={clearAll}>clear filters</button>
               </>
             ) : (
-              <><strong>{publications.length}</strong> publications, 1983–{stats.lastYear}</>
+              <>
+                <strong>{publications.length}</strong> publications, 1983–{stats.lastYear} ·{" "}
+                <a href="#/papers">browse as a plain list →</a>
+              </>
             )}
           </p>
         </div>
@@ -351,10 +361,15 @@ function Gallery({ data }) {
         <Roster people={people} />
       </section>
 
-      {/* PROJECTS */}
+      {/* PROJECTS — only the current ones; past projects are one click away */}
       <section className="vlab-section">
         <h2 className="vlab-h2">Projects</h2>
-        <ProjectGrid projects={projects} />
+        <ProjectGrid projects={featuredProjects} />
+        {archivedCount > 0 && (
+          <a className="vlab-more" href="#/projects">
+            See all {projects.length} projects — including {archivedCount} past projects →
+          </a>
+        )}
       </section>
 
       <footer className="vlab-foot">
