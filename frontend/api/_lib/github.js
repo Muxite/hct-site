@@ -31,14 +31,14 @@ const REF_RE = /^[A-Za-z0-9._/-]+$/;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 /**
- * Read `GITHUB_PAT` / `GITHUB_REPO` (`owner/repo`) / optional `GITHUB_REF`
+ * Read `GITHUB_PAT` / `GITHUB_REPO` (`owner/repo`) / optional `GITHUB_DISPATCH_REF`
  * (default `main`). A missing or malformed setting is a 500 with a generic
  * message — it never names the variable at fault.
  */
 export function githubConfig(env = process.env) {
   const token = env.GITHUB_PAT;
   const repo = env.GITHUB_REPO;
-  const ref = env.GITHUB_REF || "main";
+  const ref = env.GITHUB_DISPATCH_REF || "main";
   if (!token || !repo || !REPO_RE.test(repo) || !REF_RE.test(ref)) {
     throw new HttpError(500, "Admin jobs are not configured on the server.");
   }

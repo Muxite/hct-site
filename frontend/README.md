@@ -35,14 +35,18 @@ public browser bundle):
 | `SB_URL` | Supabase project URL — same value as `VITE_SB_URL`. |
 | `SB_SEC_KEY` | Supabase **secret** key. Used only to verify an access token and read `admins`. |
 | `GITHUB_PAT` | Token that dispatches the workflow. Use a fine-grained PAT scoped to this repo with "Actions: read and write" only. |
-| `GITHUB_REPO` | `owner/repo` (e.g. `Muxite/hct-site`). Optional `GITHUB_REF` picks the branch to run, default `main`. |
+| `GITHUB_REPO` | `owner/repo` (e.g. `Muxite/hct-site`). Optional `GITHUB_DISPATCH_REF` picks the branch to run, default `main`. |
 
 Both endpoints are public URLs, so every request is verified server-side first
 (`api/_lib/verifyAdmin.js`): the caller's Supabase access token must resolve to
 a real user *and* that user's id must be in the `admins` table, or the request
-is refused with 403 before anything else happens. `api/_lib/` is a shared-helper
-directory, not a route — Vercel skips any path under `api/` containing a `_`
-segment.
+is refused with 403 before anything else happens.
+
+**Everything directly under `api/` becomes a public route.** Vercel excludes
+only paths containing a `_` segment, which is why the shared helpers live in
+`api/_lib/` and the tests in `api/_tests/` — a `api/trigger-job.test.js` would
+otherwise deploy as a live `/api/trigger-job.test` endpoint. Anything added
+under `api/` that isn't meant to be an endpoint needs an underscore directory.
 
 ## What it renders
 
@@ -70,6 +74,7 @@ api/                    Vercel serverless functions (server-side, not bundled)
   trigger-job.js        POST: admin-verified GitHub workflow_dispatch
   job-status.js         POST: admin-verified workflow-run status
   _lib/                 shared helpers (not routes): verifyAdmin, github, http
+  _tests/               node --test suites (not routes — see below)
 src/
   config.js             Supabase URL/key (from VITE_* env) + table names
   data/db.js            supabase-js client + typed getters

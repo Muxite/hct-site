@@ -1,8 +1,15 @@
+// Tests for api/'s serverless functions. They live under `_tests/`, not
+// beside the files they cover, because Vercel turns *every* file directly
+// under `api/` into a public route — `api/trigger-job.test.js` would deploy
+// as a live `/api/trigger-job.test` endpoint. Only paths containing a `/_`
+// segment are excluded (see `_lib/verifyAdmin.js`'s note), so anything that
+// isn't an endpoint belongs under an underscore directory. `node --test`
+// discovers them here exactly as it did before.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { handleJobStatus } from "./job-status.js";
-import { AdminAuthError } from "./_lib/verifyAdmin.js";
+import { handleJobStatus } from "../job-status.js";
+import { AdminAuthError } from "../_lib/verifyAdmin.js";
 
 // Run status isn't public either — it exposes the repo's CI activity — so
 // this endpoint is gated by the same check as trigger-job.js, and `run_id`
@@ -176,8 +183,23 @@ test("a GitHub outage surfaces as 502 without leaking the PAT", async () => {
   assert.doesNotMatch((await res.json()).error, /ghp_test/);
 });
 
+test("with no deps override, the real verifyAdmin is the one that runs", async () => {
+  // Same reasoning as trigger-job.test.js: pins that the production default
+  // for `verify` really is verifyAdmin, not just that a gate is callable.
+  const noToken = await handleJobStatus(post({}));
+  assert.equal(noToken.status, 403);
+  assert.deepEqual(await noToken.json(), {
+    error: "No access token was supplied.",
+    reason: "missing_token",
+  });
+
+  const malformed = await handleJobStatus(post({ supabase_access_token: "token with a space" }));
+  assert.equal(malformed.status, 403);
+  assert.equal((await malformed.json()).reason, "invalid_token");
+});
+
 test("the default export is a fetch handler that forwards only the request", async () => {
-  const mod = (await import("./job-status.js")).default;
+  const mod = (await import("../job-status.js")).default;
   assert.equal(typeof mod.fetch, "function");
   assert.equal(mod.fetch.length, 1);
 });

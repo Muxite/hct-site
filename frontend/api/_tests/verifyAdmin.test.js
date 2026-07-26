@@ -1,7 +1,14 @@
+// Tests for api/'s serverless functions. They live under `_tests/`, not
+// beside the files they cover, because Vercel turns *every* file directly
+// under `api/` into a public route — `api/trigger-job.test.js` would deploy
+// as a live `/api/trigger-job.test` endpoint. Only paths containing a `/_`
+// segment are excluded (see `_lib/verifyAdmin.js`'s note), so anything that
+// isn't an endpoint belongs under an underscore directory. `node --test`
+// discovers them here exactly as it did before.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { verifyAdmin, getAdminClient, resetAdminClient, AdminAuthError } from "./verifyAdmin.js";
+import { verifyAdmin, getAdminClient, resetAdminClient, AdminAuthError } from "../_lib/verifyAdmin.js";
 
 // The gate in front of a public URL that can spend the project's CI/LLM
 // budget, so these tests are written adversarially: every path that isn't an

@@ -1,8 +1,15 @@
+// Tests for api/'s serverless functions. They live under `_tests/`, not
+// beside the files they cover, because Vercel turns *every* file directly
+// under `api/` into a public route — `api/trigger-job.test.js` would deploy
+// as a live `/api/trigger-job.test` endpoint. Only paths containing a `/_`
+// segment are excluded (see `_lib/verifyAdmin.js`'s note), so anything that
+// isn't an endpoint belongs under an underscore directory. `node --test`
+// discovers them here exactly as it did before.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { handleTriggerJob } from "./trigger-job.js";
-import { AdminAuthError } from "./_lib/verifyAdmin.js";
+import { handleTriggerJob } from "../trigger-job.js";
+import { AdminAuthError } from "../_lib/verifyAdmin.js";
 
 // Endpoint-level counterpart to _lib/verifyAdmin.test.js: these assert the
 // *ordering* property the plan calls load-bearing — that nothing reaches
@@ -191,12 +198,12 @@ test("style-regen is the other accepted job type", async () => {
   assert.deepEqual(JSON.parse(dispatch.body), { ref: "main", inputs: { job_type: "style-regen" } });
 });
 
-test("GITHUB_REF overrides the dispatched ref", async () => {
+test("GITHUB_DISPATCH_REF overrides the dispatched ref", async () => {
   const gh = fakeGithub();
   const { verify } = fakeVerify();
   await handleTriggerJob(post({ job_type: "cv-sync", supabase_access_token: "admin-token" }), {
     verify,
-    env: { ...ENV, GITHUB_REF: "feat/variants-gallery" },
+    env: { ...ENV, GITHUB_DISPATCH_REF: "feat/variants-gallery" },
     fetchImpl: gh.impl,
   });
   const dispatch = gh.calls.find((c) => c.url.includes("/dispatches"));
@@ -241,8 +248,29 @@ test("a failed pre-dispatch run listing doesn't block the dispatch", async () =>
   assert.ok(gh.calls.some((c) => c.url.includes("/dispatches")));
 });
 
+test("with no deps override, the real verifyAdmin is the one that runs", async () => {
+  // Every other test in this file swaps in `fakeVerify`, which proves the
+  // gate is *called* but not that it's wired to the real thing. These two
+  // call the handler with no `deps` at all, so `verify` is the production
+  // default — and both assert on behaviour only the real verifyAdmin has
+  // (its exact refusal wording, and the shape guard that no stub implements).
+  // Both reject before any network call, so this stays hermetic.
+  const noToken = await handleTriggerJob(post({ job_type: "cv-sync" }));
+  assert.equal(noToken.status, 403);
+  assert.deepEqual(await noToken.json(), {
+    error: "No access token was supplied.",
+    reason: "missing_token",
+  });
+
+  const malformed = await handleTriggerJob(
+    post({ job_type: "cv-sync", supabase_access_token: "token with a space" }),
+  );
+  assert.equal(malformed.status, 403);
+  assert.equal((await malformed.json()).reason, "invalid_token");
+});
+
 test("the default export is a fetch handler that forwards only the request", async () => {
-  const mod = (await import("./trigger-job.js")).default;
+  const mod = (await import("../trigger-job.js")).default;
   assert.equal(typeof mod.fetch, "function");
   assert.equal(mod.fetch.length, 1, "extra platform arguments must not become injectable deps");
 });
