@@ -8,6 +8,7 @@ import {
   CV_UPLOADS_BUCKET,
   CV_UPLOAD_PATH,
 } from "./storage.js";
+import { DOCX_MIME } from "../lib/format.js";
 
 /** Records from()/upload()/getPublicUrl() calls against a fake Storage client. */
 function fakeStorageClient({ uploadError = null, publicUrl = "https://x/site-media/foo.jpg" } = {}) {
@@ -76,6 +77,22 @@ test("uploadToCvUploads uploads to the private bucket at the fixed path", async 
 
   assert.deepEqual(calls[0], ["from", CV_UPLOADS_BUCKET]);
   assert.deepEqual(calls[1], ["upload", CV_UPLOAD_PATH, file, { upsert: true }]);
+});
+
+test("uploadToCvUploads pins the docx content type a picker left blank", async () => {
+  // The cv-uploads bucket only accepts the docx MIME type (db/schema.sql), and
+  // Storage reads that type off the blob itself — an untyped .docx would go up
+  // as application/octet-stream and be rejected.
+  const { client, calls } = fakeStorageClient();
+  await uploadToCvUploads(new Blob(["PK"], { type: "" }), client);
+  assert.equal(calls[1][2].type, DOCX_MIME);
+});
+
+test("uploadToCvUploads leaves an already-correct docx blob alone", async () => {
+  const { client, calls } = fakeStorageClient();
+  const file = new Blob(["PK"], { type: DOCX_MIME });
+  await uploadToCvUploads(file, client);
+  assert.equal(calls[1][2], file, "no needless re-wrap/copy of the file");
 });
 
 test("uploadToCvUploads throws on a Storage error", async () => {

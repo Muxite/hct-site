@@ -8,6 +8,7 @@
  */
 
 import { getClient } from "./db.js";
+import { DOCX_MIME } from "../lib/format.js";
 
 export const SITE_MEDIA_BUCKET = "site-media";
 export const CV_UPLOADS_BUCKET = "cv-uploads";
@@ -56,6 +57,27 @@ function withCacheBust(url, now = Date.now()) {
 export async function uploadToCvUploads(file, client = getClient()) {
   const { error } = await client.storage
     .from(CV_UPLOADS_BUCKET)
-    .upload(CV_UPLOAD_PATH, file, { upsert: true });
+    .upload(CV_UPLOAD_PATH, asDocx(file), { upsert: true });
   if (error) throw error;
+}
+
+/**
+ * Guarantee the upload is sent with the docx content type.
+ *
+ * The `cv-uploads` bucket now pins `allowed_mime_types` to the docx type
+ * (db/schema.sql), and Storage takes that type from the *blob*, not from
+ * supabase-js's `contentType` option — for a Blob/File body supabase-js
+ * builds multipart FormData and the part carries the blob's own `type`,
+ * so `contentType` is ignored on exactly this path. Some OS file pickers
+ * report an empty `type` for a .docx (`isDocxFile` in lib/format.js accepts
+ * that case by name), which would arrive as `application/octet-stream` and be
+ * rejected by the bucket. Re-wrapping pins it.
+ *
+ * Non-Blob inputs (the injected fakes in storage.test.js) pass through
+ * untouched, as does a file the picker already typed correctly.
+ */
+function asDocx(file) {
+  const isBlob = typeof Blob !== "undefined" && file instanceof Blob;
+  if (!isBlob || file.type === DOCX_MIME) return file;
+  return new Blob([file], { type: DOCX_MIME });
 }

@@ -197,6 +197,14 @@ function CvSyncSection({ accessToken }) {
 // "style-regen"). `profile_text` then feeds into describe.py/summarize.py as a
 // distinct `voice_profile` block, kept separate from summarize.py's own
 // audience-style (A/B/C/D/E) parameter — see backend/src/summarize.py.
+//
+// `EXCERPT_MAX` mirrors db/schema.sql's `style_profile_source_excerpt_check`.
+// The DB constraint is the real bound (a direct API write bypasses this
+// entirely); the textarea's `maxLength` just means a long paste is trimmed
+// with a visible counter instead of failing at save time with a raw Postgres
+// constraint error. Keep the two numbers in step.
+const EXCERPT_MAX = 20000;
+
 function StyleProfileSection({ accessToken }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -309,7 +317,17 @@ function StyleProfileSection({ accessToken }) {
         }}
         placeholder="Paste an example of the lab's writing here…"
         rows={8}
+        maxLength={EXCERPT_MAX}
       />
+
+      {excerpt.length > EXCERPT_MAX * 0.9 && (
+        <p className="admin-caption">
+          {excerpt.length.toLocaleString()} / {EXCERPT_MAX.toLocaleString()} characters
+          {excerpt.length >= EXCERPT_MAX
+            ? " — at the limit; anything further is trimmed. A voice sample only needs a few paragraphs."
+            : "."}
+        </p>
+      )}
 
       <div className="admin-style__controls">
         <button
