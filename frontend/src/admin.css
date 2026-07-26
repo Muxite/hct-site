@@ -1,8 +1,14 @@
-/* /admin — auth foundation only (login/logout + status). Imported only from
-   AdminPage.jsx, so — like feedback.css — it's absent from every bundle
-   except the one lazy chunk that actually needs it. Sits inside the shared
-   chrome (App.jsx's <main>/<Header>), so unlike feedback.css this reuses the
-   page's light/dark background rather than carrying its own opaque one. */
+/* Admin CMS surface: /admin (login/logout + status) plus the reusable
+   EditableText/EditableImage inline editors (components/EditableText.jsx,
+   EditableImage.jsx) they share button/field styling with. Originally
+   imported only from AdminPage.jsx like feedback.css is from Feedback.jsx —
+   but EditableText/EditableImage import it too, and once a future task wires
+   them into Home.jsx/People.jsx/etc. this stops being a single lazy chunk
+   and ships wherever editable content renders (the Edit/Replace affordance
+   itself still only *shows* when `editable` is true — same "always mounted,
+   conditionally visible" shape as Feedback.jsx's own widget). Sits inside
+   the shared chrome (App.jsx's <main>/<Header>), so this reuses the page's
+   light/dark background rather than carrying its own opaque one. */
 
 .admin-page {
   width: 100%;
@@ -91,5 +97,111 @@
 
   .admin-status--error {
     color: #ff9b9b;
+  }
+}
+
+/* Visually-hidden but still accessible to screen readers/keyboard focus —
+   used to hide EditableImage's native <input type="file"> behind a styled
+   label (the `.admin-btn` "Choose file" affordance). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* EditableText / EditableImage — read mode: unchanged content plus a
+   trailing Edit/Replace button, laid out inline so it drops into prose,
+   tiles, and headings alike without forcing a line break. Edit mode swaps
+   to a stacked column (field + actions) capped to a readable width. Deeper
+   mobile/dark-mode polish is Task 13 — this is deliberately minimal. */
+.editable-text,
+.editable-image {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+.editable-image {
+  align-items: center;
+}
+
+.editable-text--editing,
+.editable-image--editing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4em;
+  width: 100%;
+  max-width: 480px;
+}
+
+.editable-text__field {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  color: inherit;
+  background: #fff;
+}
+
+textarea.editable-text__field {
+  resize: vertical;
+  min-height: 84px;
+}
+
+.editable-text__actions,
+.editable-image__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.editable-text__error,
+.editable-image__error {
+  font-size: 0.85em;
+  color: #c00;
+}
+
+.editable-image__placeholder {
+  font-size: 0.85em;
+  color: #888;
+  font-style: italic;
+}
+
+.editable-image__file-label--disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.editable-image__filename {
+  font-size: 0.85em;
+  color: #666;
+}
+
+@media (prefers-color-scheme: dark) {
+  .editable-text__field {
+    background: #1a1b20;
+    border-color: #333;
+  }
+
+  .editable-text__error,
+  .editable-image__error {
+    color: #ff9b9b;
+  }
+
+  .editable-image__placeholder {
+    color: #999;
+  }
+
+  .editable-image__filename {
+    color: #aaa;
   }
 }
