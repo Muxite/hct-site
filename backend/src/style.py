@@ -15,8 +15,30 @@ from typing import Any, Protocol
 
 _DEFAULT_STYLE_SYSTEM = (
     "Analyze the writing style of the document and produce a short but detailed, "
-    "prescriptive style profile (tone, sentence structure, vocabulary, voice, "
-    "formatting). Output plain text only, ~150 words max."
+    "prescriptive style profile. Describe voice only: tone and register, "
+    "diction and vocabulary, sentence rhythm and structure, and the writer's "
+    "stance toward the reader. Do NOT describe layout, headings, bullets, "
+    "bolding, markdown, section structure, or length; those are set separately "
+    "by the requested output style, and a profile that prescribes them will "
+    "fight it. Output the profile text only, with no preamble, no headers, and "
+    "no commentary. Plain text only, ~150 words max."
+)
+
+# A profile is free text, so there is no schema to validate against, but two
+# failure modes are cheap to catch before the text is stored and then pasted
+# into every downstream prompt: a chat-style preamble, and a response that
+# blew past the ~150-word target (usually the model restating the document).
+_PREAMBLE_RE = re.compile(
+    r"^\s*(?:sure\b|certainly\b|of course\b|okay\b|ok\b|absolutely\b"
+    r"|here(?:'s| is| are)\b|below is\b|i(?:'ve| have)\b"
+    r"|(?:the\s+)?(?:style\s+)?profile\s*:)",
+    re.IGNORECASE,
+)
+_PROFILE_MAX_WORDS = 300  # 2x the ~150-word target; only catches runaways
+_RETRY_NUDGE = (
+    "\n\nIMPORTANT: your previous answer was rejected. Reply with the profile "
+    "text itself and nothing else: no preamble, no lead-in sentence, no "
+    "headers, and no more than 150 words."
 )
 
 
@@ -67,6 +89,38 @@ def load_style_system_prompt(templates_dir: str | Path | None) -> str:
     return _DEFAULT_STYLE_SYSTEM
 
 
+def strip_profile_preamble(text: str) -> str:
+    """Drop a chat-style lead-in ("Here is the style profile:") from ``text``."""
+
+    t = (text or "").strip()
+    if not t or not _PREAMBLE_RE.match(t):
+        return t
+    lines = t.splitlines()
+    first = lines[0].strip()
+    # A short preamble on its own line: drop the line.
+    if len(lines) > 1 and len(first.split()) <= 20:
+        return "\n".join(lines[1:]).strip()
+    # Or an inline one: "Here is the profile: Tone is formal, ...".
+    head, sep, rest = t.partition(":")
+    if sep and rest.strip() and len(head.split()) <= 20:
+        return rest.strip()
+    return t
+
+
+def check_profile(text: str) -> str:
+    """Return why ``text`` is unusable as a style profile, or "" if it looks fine."""
+
+    t = (text or "").strip()
+    if not t:
+        return "empty response"
+    if _PREAMBLE_RE.match(t):
+        return "starts with a preamble instead of the profile"
+    n = len(t.split())
+    if n > _PROFILE_MAX_WORDS:
+        return f"{n} words, far over the ~150-word target"
+    return ""
+
+
 def analyze_style(
     text: str,
     *,
@@ -74,17 +128,40 @@ def analyze_style(
     system_prompt: str | None = None,
     max_chars: int = 12000,
 ) -> str:
-    """Produce a short style profile for ``text`` using the LLM (free text)."""
+    """Produce a short style profile for ``text`` using the LLM (free text).
+
+    The profile is free prose, so there is no Pydantic model to validate it
+    against, but it is stored and then prepended to every downstream generation
+    prompt, so an obviously malformed response must not get that far. The
+    response is preamble-stripped and sanity-checked; a failure buys one repair
+    retry (the project's usual pattern), and a second failure raises.
+    """
 
     if not text or not text.strip():
         raise ValueError("cannot analyze empty text")
     system = system_prompt if system_prompt is not None else _DEFAULT_STYLE_SYSTEM
     snippet = text.strip()[:max_chars]
-    profile = llm.complete(
-        system=system,
-        user=f"Document to analyze:\n\n{snippet}",
-        json_mode=False,
-        max_tokens=400,
-        label="style",
+    user = f"Document to analyze:\n\n{snippet}"
+
+    profile = strip_profile_preamble(
+        llm.complete(
+            system=system, user=user, json_mode=False, max_tokens=400, label="style"
+        )
     )
-    return profile.strip()
+    problem = check_profile(profile)
+    if not problem:
+        return profile
+
+    profile = strip_profile_preamble(
+        llm.complete(
+            system=system + _RETRY_NUDGE,
+            user=user,
+            json_mode=False,
+            max_tokens=400,
+            label="style-repair",
+        )
+    )
+    problem = check_profile(profile)
+    if problem:
+        raise ValueError(f"style profile looks malformed after one retry: {problem}")
+    return profile
