@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { getPeople, getProjects, getSiteContent } from "../data/db.js";
+import { getPeople, getProjects, getSiteContent, updateSiteContent } from "../data/db.js";
+import { splitByKind } from "../lib/format.js";
+import { useAdmin } from "../context/AdminContext.jsx";
+import EditableText from "./EditableText.jsx";
 import Prose from "./Prose.jsx";
 import People from "./People.jsx";
 import Research from "./Research.jsx";
@@ -20,6 +23,8 @@ const PROSE_TITLES = {
 // small tables (people, projects, prose) up front; the 550+ row publication
 // list is paginated by <Publications> itself.
 export default function Home() {
+  const { isAdmin, editMode } = useAdmin();
+  const editable = isAdmin && editMode;
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
 
@@ -46,14 +51,37 @@ export default function Home() {
   }
 
   const { content, people, projects } = data;
+  // Featured = current status; the rest (past/archived projects) only show
+  // up when you click through to the full projects page.
+  const [featuredProjects, archivedProjects] = splitByKind(projects, "archived");
+  const archivedCount = archivedProjects.length;
+
+  // Persists the edit, then folds the same value into local state so the
+  // read view (which renders straight from `content[key]`, not from
+  // EditableText's own state) reflects it without a full refetch.
+  async function saveContent(key, nextText) {
+    const nextValue = { ...(content[key] || { title: PROSE_TITLES[key] }), text: nextText };
+    await updateSiteContent(key, nextValue);
+    setData((d) => ({ ...d, content: { ...d.content, [key]: nextValue } }));
+  }
 
   const proseSection = (key) => {
     const v = content[key];
-    if (!v || !v.text) return null;
+    // Public visitors never see an empty section; an admin in edit mode gets
+    // an affordance to add the missing text instead of the block vanishing.
+    if ((!v || !v.text) && !editable) return null;
+    const text = v?.text || "";
     return (
       <div className="prose-block" key={key}>
         <h2>{PROSE_TITLES[key]}</h2>
-        <Prose text={v.text} />
+        <EditableText
+          value={text}
+          editable={editable}
+          multiline
+          placeholder="Add text for this section…"
+          render={(t) => (t ? <Prose text={t} /> : null)}
+          onSave={(nextText) => saveContent(key, nextText)}
+        />
       </div>
     );
   };
@@ -69,11 +97,14 @@ export default function Home() {
       <People people={people} />
 
       <h2>Projects</h2>
-      <Research projects={projects} />
-      <div className="note">
-        For past projects, see our old HCT site{" "}
-        <a href="https://hct.ece.ubc.ca/research">research page</a>.
-      </div>
+      <Research projects={featuredProjects} />
+      {archivedCount > 0 && (
+        <div className="note">
+          <a href="#/projects">
+            See all {projects.length} projects — including {archivedCount} past projects →
+          </a>
+        </div>
+      )}
 
       {proseSection("contact")}
       {proseSection("land_acknowledgment")}
@@ -84,7 +115,7 @@ export default function Home() {
       <h2 className="section" id="publications">
         Publications
       </h2>
-      <Publications />
+      <Publications limit={8} moreHref="#/papers" />
     </>
   );
 }

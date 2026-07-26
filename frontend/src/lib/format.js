@@ -77,3 +77,21 @@ export function assetUrl(path) {
 export function isImageFile(file) {
   return Boolean(file && typeof file.type === "string" && file.type.startsWith("image/"));
 }
+
+/**
+ * Kebab-case slug for a display name, used to build the admin CMS's photo
+ * upload path (`people/<slug>.<ext>` in the site-media bucket — see
+ * data/storage.js's uploadToSiteMedia and db/schema.sql's path convention).
+ * Mirrors the shape of the backend's `_slugify` (models.py) — lowercase
+ * ASCII, non-alphanumerics collapsed to single hyphens, leading/trailing
+ * hyphens trimmed — but simpler (no NFKD/curly-quote normalization): a
+ * person's name is plain text and photo-path collisions aren't the
+ * dedupe-key-critical case a publication/project slug is.
+ */
+export function slugify(text) {
+  return String(text || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}

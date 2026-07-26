@@ -205,3 +205,84 @@ textarea.editable-text__field {
     color: #aaa;
   }
 }
+
+/* People.jsx admin CRUD (Task 7): the per-tile "reveal every field at once"
+   edit form and the "Add person" form beneath the roster grids. Reuses
+   .editable-text__actions/.editable-text__error/.admin-btn rather than
+   inventing parallel classes for the same button row/error text. */
+.admin-person-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.4em;
+}
+
+.admin-person-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  width: 100%;
+  max-width: 320px;
+}
+
+.admin-person-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.admin-person-form input,
+.admin-person-form select,
+.admin-person-form textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  color: inherit;
+  background: #fff;
+}
+
+.admin-person-form textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+/* The people.kind coordination-with-people.yaml caveat (see People.jsx) and
+   the "name is permanent" / "not yet in people.yaml" notes on the add form —
+   deliberately quiet/secondary, not an error or a warning banner. */
+.admin-caption {
+  font-size: 0.78em;
+  font-style: italic;
+  color: #888;
+  margin: 0;
+}
+
+.admin-add-person {
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 24px;
+}
+
+.admin-add-person h4 {
+  margin: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .admin-person-form input,
+  .admin-person-form select,
+  .admin-person-form textarea {
+    background: #1a1b20;
+    border-color: #333;
+  }
+
+  .admin-caption {
+    color: #999;
+  }
+
+  .admin-add-person {
+    border-color: #333;
+  }
+}

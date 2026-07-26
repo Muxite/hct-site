@@ -8,6 +8,7 @@ import {
   formatAuthors,
   emailLabel,
   isImageFile,
+  slugify,
 } from "./format.js";
 
 test("groupByYear sorts years newest first", () => {
@@ -75,4 +76,23 @@ test("isImageFile rejects missing/malformed input without throwing", () => {
   assert.equal(isImageFile(undefined), false);
   assert.equal(isImageFile({}), false);
   assert.equal(isImageFile({ name: "mystery", type: "" }), false);
+});
+
+// --- slugify (People.jsx's photo-path builder) -------------------------------
+test("slugify lowercases and hyphenates a plain name", () => {
+  assert.equal(slugify("Sidney Fels"), "sidney-fels");
+});
+
+test("slugify collapses runs of non-alphanumerics into a single hyphen", () => {
+  assert.equal(slugify("Jane  O'Brien-Smith!!"), "jane-o-brien-smith");
+});
+
+test("slugify trims leading/trailing hyphens", () => {
+  assert.equal(slugify("  -Ana-  "), "ana");
+});
+
+test("slugify returns an empty string for missing/empty input without throwing", () => {
+  assert.equal(slugify(""), "");
+  assert.equal(slugify(null), "");
+  assert.equal(slugify(undefined), "");
 });

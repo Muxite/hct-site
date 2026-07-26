@@ -185,6 +185,19 @@ export async function getPaperSamples(client = getClient()) {
 }
 
 /**
+ * Submit one right-click feedback entry (see components/Feedback.jsx).
+ *
+ * `feedback` has an INSERT-only RLS policy for the publishable key with no
+ * SELECT grant — chaining `.select()` after `.insert()` would ask PostgREST
+ * to return the written row (`Prefer: return=representation`) and fail on
+ * the missing SELECT privilege, so this deliberately never chains `.select()`.
+ */
+export async function submitFeedback(payload, client = getClient()) {
+  const { error } = await client.from(TABLES.feedback).insert(payload);
+  if (error) throw error;
+}
+
+/**
  * Whether `userId` belongs to the `admins` allowlist (see context/AdminContext.jsx).
  * The table's RLS policy only lets a user read their *own* row
  * (`user_id = auth.uid()`), so a signed-in non-admin's query isn't an error —
@@ -211,4 +224,85 @@ export async function getSiteContent(client = getClient()) {
   const map = {};
   for (const row of data || []) map[row.key] = row.value;
   return map;
+}
+
+/**
+ * Write a site_content row's whole `value` (e.g. `{ title, text }` — see
+ * content.py's shape). Admin-only under RLS (db/schema.sql's "admin insert/
+ * update site_content" policies). Upsert rather than a plain update: every
+ * key in CONTENT_KEYS is seeded by the backend today so a missing row isn't
+ * expected, but an upsert costs nothing and covers it either way. Callers
+ * (Home.jsx) pass the full `{ title, text }` object — not just the new text —
+ * so an edit to `text` alone doesn't null out `title`.
+ */
+export async function updateSiteContent(key, value, client = getClient()) {
+  const { error } = await client
+    .from(TABLES.siteContent)
+    .upsert({ key, value }, { onConflict: "key" });
+  if (error) throw error;
+}
+
+const PERSON_COLS = "name,role,email,photo,bio,kind,sort_order";
+
+/**
+ * Create a new people row. `name` is the loose-ref join key `project_people`
+ * uses and the admin UI's identity rule (people_name_key in db/schema.sql) —
+ * it's treated as immutable after creation; a typo is fixed by delete +
+ * recreate, not a rename. Surfaces the unique-name constraint as a friendly
+ * message instead of a raw Postgres error.
+ */
+export async function insertPerson(person, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.people)
+    .insert(person)
+    .select(PERSON_COLS)
+    .maybeSingle();
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error(`A person named "${person.name}" already exists.`);
+    }
+    throw error;
+  }
+  return data;
+}
+
+/** Update an existing person's editable fields, keyed by their (immutable) name. */
+export async function updatePerson(name, fields, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.people)
+    .update(fields)
+    .eq("name", name)
+    .select(PERSON_COLS)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/** Project slugs a person is currently linked to, via project_people rows. */
+export async function personProjectSlugs(name, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.projectPeople)
+    .select("project_slug")
+    .eq("person_name", name);
+  if (error) throw error;
+  return (data || []).map((r) => r.project_slug);
+}
+
+/**
+ * Delete a person — but only once they're not linked to any project.
+ * `project_people.person_name` is a loose ref, not a foreign key (see
+ * db/schema.sql), so deleting someone still on a project's roster would
+ * silently orphan that link rather than fail loudly; this checks first and
+ * blocks with a clear message instead.
+ */
+export async function deletePerson(name, client = getClient()) {
+  const slugs = await personProjectSlugs(name, client);
+  if (slugs.length > 0) {
+    throw new Error(
+      `${name} is still listed on ${slugs.length === 1 ? "project" : "projects"} ` +
+        `"${slugs.join('", "')}" — remove them there first, then delete.`,
+    );
+  }
+  const { error } = await client.from(TABLES.people).delete().eq("name", name);
+  if (error) throw error;
 }

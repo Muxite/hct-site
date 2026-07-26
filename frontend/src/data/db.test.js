@@ -8,6 +8,11 @@ import {
   isMissingSamplesTable,
   isMockMode,
   getAdminStatus,
+  updateSiteContent,
+  insertPerson,
+  updatePerson,
+  personProjectSlugs,
+  deletePerson,
 } from "./db.js";
 
 function samplesClient(result) {
@@ -180,4 +185,209 @@ test("getAdminStatus still throws a non-RLS Supabase error", async () => {
   const error = { code: "500", message: "boom" };
   const { client } = singleClient({ data: null, error });
   await assert.rejects(getAdminStatus("u3", client), error);
+});
+
+// --- updateSiteContent --------------------------------------------------------
+/** An `upsert(payload, opts)` call — the shape `updateSiteContent` uses. */
+function upsertClient(result) {
+  const calls = [];
+  const builder = {
+    upsert(payload, opts) {
+      calls.push(["upsert", payload, opts]);
+      return Promise.resolve(result);
+    },
+  };
+  return { client: { from: () => builder }, calls };
+}
+
+test("updateSiteContent upserts the key/value row keyed on `key`", async () => {
+  const { client, calls } = upsertClient({ error: null });
+  await updateSiteContent("vision", { title: "Vision", text: "New text" }, client);
+  assert.deepEqual(calls[0], [
+    "upsert",
+    { key: "vision", value: { title: "Vision", text: "New text" } },
+    { onConflict: "key" },
+  ]);
+});
+
+test("updateSiteContent throws on a Supabase error", async () => {
+  const error = { message: "not authorized" };
+  const { client } = upsertClient({ error });
+  await assert.rejects(updateSiteContent("vision", { text: "x" }, client), error);
+});
+
+// --- insertPerson / updatePerson (people CRUD) --------------------------------
+/** An `insert()`/`update()` -> `.eq()`? -> `select()` -> `maybeSingle()` chain
+ * — the shape both insertPerson (no `.eq()`) and updatePerson (with `.eq()`)
+ * use. */
+function writeSelectClient(result) {
+  const calls = [];
+  const builder = {
+    insert(payload) {
+      calls.push(["insert", payload]);
+      return builder;
+    },
+    update(payload) {
+      calls.push(["update", payload]);
+      return builder;
+    },
+    eq(col, val) {
+      calls.push(["eq", col, val]);
+      return builder;
+    },
+    select(cols) {
+      calls.push(["select", cols]);
+      return builder;
+    },
+    maybeSingle() {
+      return Promise.resolve(result);
+    },
+  };
+  return { client: { from: () => builder }, calls };
+}
+
+test("insertPerson inserts the row and returns the selected result", async () => {
+  const row = { name: "Jane Doe", role: "Grad student", kind: "current" };
+  const { client, calls } = writeSelectClient({ data: row, error: null });
+  const result = await insertPerson(row, client);
+  assert.deepEqual(result, row);
+  assert.deepEqual(calls[0], ["insert", row]);
+  assert.equal(calls.some((c) => c[0] === "select"), true);
+});
+
+test("insertPerson surfaces a duplicate name as a friendly error", async () => {
+  const { client } = writeSelectClient({
+    data: null,
+    error: { code: "23505", message: "duplicate key value violates unique constraint" },
+  });
+  await assert.rejects(insertPerson({ name: "Jane Doe" }, client), /already exists/);
+});
+
+test("insertPerson still throws a non-duplicate Supabase error", async () => {
+  const error = { code: "42501", message: "permission denied" };
+  const { client } = writeSelectClient({ data: null, error });
+  await assert.rejects(insertPerson({ name: "Jane Doe" }, client), error);
+});
+
+test("updatePerson updates by name and returns the selected result", async () => {
+  const row = { name: "Jane Doe", role: "Postdoc" };
+  const { client, calls } = writeSelectClient({ data: row, error: null });
+  const result = await updatePerson("Jane Doe", { role: "Postdoc" }, client);
+  assert.deepEqual(result, row);
+  assert.deepEqual(calls[0], ["update", { role: "Postdoc" }]);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "eq"),
+    ["eq", "name", "Jane Doe"],
+  );
+});
+
+test("updatePerson throws on a Supabase error", async () => {
+  const error = { message: "not authorized" };
+  const { client } = writeSelectClient({ data: null, error });
+  await assert.rejects(updatePerson("Jane Doe", { role: "x" }, client), error);
+});
+
+// --- personProjectSlugs / deletePerson (delete-guard) -------------------------
+/** A `select().eq()` chain resolving directly (no maybeSingle) — used for the
+ * project_people membership check. */
+function projectPeopleClient(result) {
+  const calls = [];
+  const builder = {
+    select(cols) {
+      calls.push(["select", cols]);
+      return builder;
+    },
+    eq(col, val) {
+      calls.push(["eq", col, val]);
+      return Promise.resolve(result);
+    },
+  };
+  return { client: { from: () => builder }, calls };
+}
+
+test("personProjectSlugs returns the linked project slugs", async () => {
+  const { client, calls } = projectPeopleClient({
+    data: [{ project_slug: "brain2speech" }, { project_slug: "other-proj" }],
+    error: null,
+  });
+  const slugs = await personProjectSlugs("Jane Doe", client);
+  assert.deepEqual(slugs, ["brain2speech", "other-proj"]);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "eq"),
+    ["eq", "person_name", "Jane Doe"],
+  );
+});
+
+test("personProjectSlugs returns an empty list when unlinked", async () => {
+  const { client } = projectPeopleClient({ data: [], error: null });
+  assert.deepEqual(await personProjectSlugs("Jane Doe", client), []);
+});
+
+test("personProjectSlugs throws on a Supabase error", async () => {
+  const error = { message: "boom" };
+  const { client } = projectPeopleClient({ data: null, error });
+  await assert.rejects(personProjectSlugs("Jane Doe", client), error);
+});
+
+/** Routes `.from(table)` to a project_people-membership builder or a
+ * people-delete builder, so deletePerson's two-step query/guard is testable
+ * end to end against one fake client. */
+function deletePersonClient({ linkedSlugs = [], deleteError = null }) {
+  const calls = [];
+  const projectPeopleBuilder = {
+    select(cols) {
+      calls.push(["projectPeople.select", cols]);
+      return projectPeopleBuilder;
+    },
+    eq(col, val) {
+      calls.push(["projectPeople.eq", col, val]);
+      return Promise.resolve({
+        data: linkedSlugs.map((s) => ({ project_slug: s })),
+        error: null,
+      });
+    },
+  };
+  const peopleBuilder = {
+    delete() {
+      calls.push(["people.delete"]);
+      return peopleBuilder;
+    },
+    eq(col, val) {
+      calls.push(["people.eq", col, val]);
+      return Promise.resolve({ error: deleteError });
+    },
+  };
+  return {
+    client: {
+      from: (table) => (table === "project_people" ? projectPeopleBuilder : peopleBuilder),
+    },
+    calls,
+  };
+}
+
+test("deletePerson deletes when the person has no project links", async () => {
+  const { client, calls } = deletePersonClient({ linkedSlugs: [] });
+  await deletePerson("Jane Doe", client);
+  assert.equal(calls.some((c) => c[0] === "people.delete"), true);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "people.eq"),
+    ["people.eq", "name", "Jane Doe"],
+  );
+});
+
+test("deletePerson blocks with a clear message when the person is still linked to a project", async () => {
+  const { client, calls } = deletePersonClient({ linkedSlugs: ["brain2speech"] });
+  await assert.rejects(deletePerson("Jane Doe", client), /brain2speech/);
+  assert.equal(calls.some((c) => c[0] === "people.delete"), false);
+});
+
+test("deletePerson blocks and lists multiple linked projects in the message", async () => {
+  const { client } = deletePersonClient({ linkedSlugs: ["brain2speech", "other-proj"] });
+  await assert.rejects(deletePerson("Jane Doe", client), /brain2speech.*other-proj/s);
+});
+
+test("deletePerson throws the underlying error when the delete itself fails", async () => {
+  const error = { message: "not authorized" };
+  const { client } = deletePersonClient({ linkedSlugs: [], deleteError: error });
+  await assert.rejects(deletePerson("Jane Doe", client), error);
 });
