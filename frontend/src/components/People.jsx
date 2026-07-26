@@ -252,7 +252,7 @@ function PersonTile({ person, editable, onSaved, onDeleted }) {
 // the actual upload + insert (People.jsx) and is awaited with no optimistic
 // UI, same Save/Cancel-disable-while-saving convention as EditableText.jsx.
 function AddPersonForm({ onAdd }) {
-  const { fields, setField, status, errorMsg, handleFileChange, handleSubmit } = useAddPersonForm(onAdd);
+  const { fields, setField, file, status, errorMsg, handleFileChange, handleSubmit } = useAddPersonForm(onAdd);
   const saving = status === "saving";
 
   return (
@@ -286,13 +286,24 @@ function AddPersonForm({ onAdd }) {
           disabled={saving}
         />
       </label>
-      <label>
-        Photo
-        {/* `accept="image/*"` below is a UI hint only (trivially bypassed,
-            e.g. an OS "All files" picker option) — useAddPersonForm's
-            handleFileChange is the actual enforcement. */}
-        <input type="file" accept="image/*" onChange={handleFileChange} disabled={saving} />
+      <label htmlFor="add-person-photo">Photo</label>
+      {/* `accept="image/*"` below is a UI hint only (trivially bypassed,
+          e.g. an OS "All files" picker option) — useAddPersonForm's
+          handleFileChange is the actual enforcement. Hidden behind a styled
+          label like every other file picker in the app (EditableImage.jsx,
+          AdminPage.jsx's CV upload) instead of the bare native control. */}
+      <label className={`admin-btn${saving ? " admin-btn--disabled" : ""}`}>
+        Choose file
+        <input
+          id="add-person-photo"
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          onChange={handleFileChange}
+          disabled={saving}
+        />
       </label>
+      {file && <span className="editable-image__filename">{file.name}</span>}
       <label>
         Status
         <select

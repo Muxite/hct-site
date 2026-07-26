@@ -37,8 +37,20 @@
   background: #fff;
 }
 
+/* Task 13: every admin-only button/label-as-button gets an explicit 44px
+   tap-target floor plus centred label text (buttons default to top-aligned
+   text once a min-height stretches them past their line box) — this used to
+   be scoped to just .admin-cv__controls .admin-btn (see that section's old
+   comment), but Edit/Save/Cancel/Remove/Sign out/etc. all needed the same
+   floor, so it now lives once on the shared class instead of being repeated
+   per section. Doesn't touch non-admin buttons like .load-more/.fb-btn,
+   which never shared this class. */
 .admin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   align-self: flex-start;
+  min-height: 44px;
   font: inherit;
   padding: 8px 16px;
   border: 1px solid #ddd;
@@ -160,6 +172,7 @@ textarea.editable-text__field {
 .editable-text__actions,
 .editable-image__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -212,6 +225,7 @@ textarea.editable-text__field {
    inventing parallel classes for the same button row/error text. */
 .admin-person-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 0.4em;
 }
@@ -230,6 +244,17 @@ textarea.editable-text__field {
   gap: 0.2em;
   font-size: 0.85em;
   font-weight: 600;
+}
+
+/* The "Choose file" trigger (People.jsx's AddPersonForm / SiteHome.jsx's
+   AddPersonCard, Task 13) is itself a <label> — matching the .sr-only file
+   input convention EditableImage.jsx/AdminPage.jsx already use — so without
+   this it would inherit the bold, 0.85em field-caption styling above
+   (higher specificity than .admin-btn's own `font: inherit`) instead of
+   looking like every other "Choose file" button in the app. */
+.admin-person-form label.admin-btn {
+  font-weight: 400;
+  font-size: 1em;
 }
 
 .admin-person-form input,
@@ -288,13 +313,12 @@ textarea.editable-text__field {
 }
 
 /* CV sync (AdminPage.jsx): the .docx picker plus the "Sync now" trigger and
-   its job-status line. Buttons here carry an explicit 44px min-height (the
-   phone tap-target floor) rather than widening the shared `.admin-btn`,
-   which the rest of the page already sizes to its own taste; the row wraps
-   instead of using fixed widths so it reflows at any viewport. Every class
-   added below also needs an entry in the dark-mode block at the end of this
-   file if it sets a colour — that block is a hand-maintained list, not a
-   blanket rule. */
+   its job-status line. The 44px tap-target floor and centred label text now
+   come from the shared `.admin-btn` rule itself (Task 13) rather than being
+   repeated here; the row still wraps instead of using fixed widths so it
+   reflows at any viewport. Every class added below also needs an entry in
+   the dark-mode block at the end of this file if it sets a colour — that
+   block is a hand-maintained list, not a blanket rule. */
 .admin-cv {
   margin: 2em 0;
   padding-top: 1.5em;
@@ -311,14 +335,6 @@ textarea.editable-text__field {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 1em;
-}
-
-.admin-cv__controls .admin-btn {
-  /* inline-flex + centring so the <label>-as-button's text sits in the
-     middle of the 44px box rather than at its top. */
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
 }
 
 .admin-cv__filename {
