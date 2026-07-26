@@ -118,3 +118,14 @@ export function projectImagePath(slug, file) {
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   return `projects/${slug}.${ext}`;
 }
+
+/**
+ * `papers/<slug>.<ext>` — the site-media path convention (db/schema.sql) for
+ * a publication's representative image upload. `slug` is `publications.slug`,
+ * already a stable dedupe key, so — like `projectImagePath` — this doesn't
+ * need to slugify anything itself.
+ */
+export function paperImagePath(slug, file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  return `papers/${slug}.${ext}`;
+}

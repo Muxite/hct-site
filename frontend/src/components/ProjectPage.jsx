@@ -1,15 +1,24 @@
 import { useEffect, useState } from "react";
 import Prose from "./Prose.jsx";
-import { assetUrl, formatAuthors, emailLabel } from "../lib/format.js";
-import { getProject, getProjectPeople, getPeopleByNames, getProjectPapers } from "../data/db.js";
+import { assetUrl, formatAuthors, emailLabel, projectImagePath } from "../lib/format.js";
+import { getProject, getProjectPeople, getPeopleByNames, getProjectPapers, updateProject } from "../data/db.js";
+import { uploadToSiteMedia } from "../data/storage.js";
+import { useAdmin } from "../context/AdminContext.jsx";
+import EditableText from "./EditableText.jsx";
+import EditableImage from "./EditableImage.jsx";
 
 const PHOTO_FALLBACK = "/Human Communication Technologies Lab_files/person.png";
 
 // A single project's page: hero image, longer summary, the lab people
 // involved, and its member papers (small image + plain-language excerpt).
 // Fetches only this one project's rows — never the whole projects/people/
-// publications tables.
+// publications tables. Project *membership* (the people roster and papers
+// list below) is deliberately read-only here — see docs/PROJECTS.md; adding
+// or removing a project's papers/people is a backend/data-file concern, not
+// something this page's admin mode offers.
 export default function ProjectPage({ slug }) {
+  const { isAdmin, editMode } = useAdmin();
+  const editable = isAdmin && editMode;
   const [state, setState] = useState({ loading: true, error: null, data: null });
 
   useEffect(() => {
@@ -43,15 +52,38 @@ export default function ProjectPage({ slug }) {
   const { project, roster, papers } = data;
   const hero = project.hero_image || project.image;
 
+  // Fold a known-good field value into local state directly rather than
+  // trusting updateProject's returned row for it — its `.select()` uses
+  // PROJECT_GRID_COLS (data/db.js), which doesn't include `summary`, so a
+  // summary save's response never actually carries the new summary back.
+  function patchProject(fields) {
+    setState((s) => ({ ...s, data: { ...s.data, project: { ...s.data.project, ...fields } } }));
+  }
+
+  async function handleHeroSave(file) {
+    const url = await uploadToSiteMedia(file, projectImagePath(project.slug, file));
+    await updateProject(project.slug, { hero_image: url });
+    patchProject({ hero_image: url });
+  }
+
+  async function handleSummarySave(nextText) {
+    await updateProject(project.slug, { summary: nextText });
+    patchProject({ summary: nextText });
+  }
+
   return (
     <article className="project-page">
       <p className="breadcrumb">
         <a href="#/">← Back to HCT Lab</a>
       </p>
 
-      {hero && (
+      {(hero || editable) && (
         <div className="project-hero">
-          <img alt={project.title} src={assetUrl(hero)} loading="lazy" />
+          {editable ? (
+            <EditableImage value={hero} onSave={handleHeroSave} editable alt={project.title} />
+          ) : (
+            hero && <img alt={project.title} src={assetUrl(hero)} loading="lazy" />
+          )}
         </div>
       )}
 
@@ -65,7 +97,14 @@ export default function ProjectPage({ slug }) {
         </p>
       )}
 
-      <Prose text={project.summary || project.description || ""} />
+      <EditableText
+        value={project.summary || project.description || ""}
+        editable={editable}
+        multiline
+        placeholder="Add a summary for this project…"
+        render={(t) => (t ? <Prose text={t} /> : null)}
+        onSave={handleSummarySave}
+      />
 
       {roster.length > 0 && (
         <>

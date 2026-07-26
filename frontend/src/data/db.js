@@ -298,6 +298,27 @@ export async function updateProject(slug, fields, client = getClient()) {
   return data;
 }
 
+/**
+ * Update an existing publication's editable fields, keyed by its (stable)
+ * slug. Mirrors `updateProject` above. `db/schema.sql`'s
+ * `publications_admin_guard` trigger only lets an authenticated
+ * (non-service-role) update touch `summary_plain`/`summary_abstract`/
+ * `summary_par`/`image` — the same fields `hct-manager summarize --live`
+ * only fills in when still empty (`cli.py`'s `_cmd_summarize`, absent
+ * `--force`), so an admin edit made here survives a routine backend pass
+ * rather than being silently overwritten by it.
+ */
+export async function updatePublication(slug, fields, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.publications)
+    .update(fields)
+    .eq("slug", slug)
+    .select(PUB_COLS_FULL)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 /** Project slugs a person is currently linked to, via project_people rows. */
 export async function personProjectSlugs(name, client = getClient()) {
   const { data, error } = await client

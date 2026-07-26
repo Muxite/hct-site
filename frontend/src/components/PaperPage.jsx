@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
 import Prose from "./Prose.jsx";
-import { assetUrl, formatAuthors, typeLabel } from "../lib/format.js";
-import { getPublication } from "../data/db.js";
+import { assetUrl, formatAuthors, typeLabel, paperImagePath } from "../lib/format.js";
+import { getPublication, updatePublication } from "../data/db.js";
+import { uploadToSiteMedia } from "../data/storage.js";
+import { useAdmin } from "../context/AdminContext.jsx";
+import EditableText from "./EditableText.jsx";
+import EditableImage from "./EditableImage.jsx";
 
 // A single paper's page: representative image, plain-language summary (style
 // A) as the body for the general public, with the technical abstract (style
 // B) and problem/approach/result breakdown (style C) available as expandable
 // sections for researchers and prospective grad students respectively.
+// Bibliographic fields (title/authors/venue/DOI/bibtex) are read-only here —
+// they come from the CV parse (backend/src/cv_parse.py), not admin edits;
+// only the three prose summaries and the image are editable, matching
+// db/schema.sql's `publications_admin_guard` trigger.
 export default function PaperPage({ slug }) {
+  const { isAdmin, editMode } = useAdmin();
+  const editable = isAdmin && editMode;
   const [state, setState] = useState({ loading: true, error: null, pub: null });
   const [open, setOpen] = useState({ abstract: false, par: false });
 
@@ -34,7 +44,35 @@ export default function PaperPage({ slug }) {
   if (loading) return <div className="state">Loading…</div>;
   if (!pub) return <div className="state">Paper not found.</div>;
 
-  const body = pub.summary_plain || pub.description || "";
+  // Folds a known-good field value into local state. updatePublication's
+  // `.select()` uses PUB_COLS_FULL (data/db.js), which — unlike
+  // updateProject's PROJECT_GRID_COLS — already covers summary_plain/
+  // summary_abstract/summary_par/image, so `saved` is trustworthy; the
+  // `fields` fallback only matters if `.maybeSingle()` ever comes back empty.
+  function patchPub(fields, saved) {
+    setState((s) => ({ ...s, pub: { ...s.pub, ...(saved || fields) } }));
+  }
+
+  async function handleImageSave(file) {
+    const url = await uploadToSiteMedia(file, paperImagePath(pub.slug, file));
+    const saved = await updatePublication(pub.slug, { image: url });
+    patchPub({ image: url }, saved);
+  }
+
+  async function handleSummaryPlainSave(nextText) {
+    const saved = await updatePublication(pub.slug, { summary_plain: nextText });
+    patchPub({ summary_plain: nextText }, saved);
+  }
+
+  async function handleSummaryAbstractSave(nextText) {
+    const saved = await updatePublication(pub.slug, { summary_abstract: nextText });
+    patchPub({ summary_abstract: nextText }, saved);
+  }
+
+  async function handleSummaryParSave(nextText) {
+    const saved = await updatePublication(pub.slug, { summary_par: nextText });
+    patchPub({ summary_par: nextText }, saved);
+  }
 
   return (
     <article className="paper-page">
@@ -46,9 +84,13 @@ export default function PaperPage({ slug }) {
         )}
       </p>
 
-      {pub.image && (
+      {(pub.image || editable) && (
         <div className="paper-hero">
-          <img alt={pub.title} src={assetUrl(pub.image)} loading="lazy" />
+          {editable ? (
+            <EditableImage value={pub.image} onSave={handleImageSave} editable alt={pub.title} />
+          ) : (
+            pub.image && <img alt={pub.title} src={assetUrl(pub.image)} loading="lazy" />
+          )}
         </div>
       )}
 
@@ -69,25 +111,49 @@ export default function PaperPage({ slug }) {
         )}
       </p>
 
-      {body ? <Prose text={body} /> : <p className="state">Summary coming soon.</p>}
+      <EditableText
+        value={pub.summary_plain || ""}
+        editable={editable}
+        multiline
+        placeholder="Add a plain-language summary…"
+        render={(t) => {
+          const text = t || pub.description || "";
+          return text ? <Prose text={text} /> : <p className="state">Summary coming soon.</p>;
+        }}
+        onSave={handleSummaryPlainSave}
+      />
 
-      {pub.summary_abstract && (
+      {(pub.summary_abstract || editable) && (
         <Expandable
           label="Technical abstract"
           open={open.abstract}
           onToggle={() => setOpen((o) => ({ ...o, abstract: !o.abstract }))}
         >
-          <Prose text={pub.summary_abstract} />
+          <EditableText
+            value={pub.summary_abstract || ""}
+            editable={editable}
+            multiline
+            placeholder="Add the technical abstract…"
+            render={(t) => (t ? <Prose text={t} /> : <p className="state">No abstract yet.</p>)}
+            onSave={handleSummaryAbstractSave}
+          />
         </Expandable>
       )}
 
-      {pub.summary_par && (
+      {(pub.summary_par || editable) && (
         <Expandable
           label="Problem / Approach / Result"
           open={open.par}
           onToggle={() => setOpen((o) => ({ ...o, par: !o.par }))}
         >
-          <Prose text={pub.summary_par} />
+          <EditableText
+            value={pub.summary_par || ""}
+            editable={editable}
+            multiline
+            placeholder="Add the problem / approach / result summary…"
+            render={(t) => (t ? <Prose text={t} /> : <p className="state">Nothing here yet.</p>)}
+            onSave={handleSummaryParSave}
+          />
         </Expandable>
       )}
 

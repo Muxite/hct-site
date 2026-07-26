@@ -14,6 +14,7 @@ import {
   personProjectSlugs,
   deletePerson,
   updateProject,
+  updatePublication,
 } from "./db.js";
 
 function samplesClient(result) {
@@ -305,6 +306,25 @@ test("updateProject throws on a Supabase error", async () => {
   const error = { message: "not authorized" };
   const { client } = writeSelectClient({ data: null, error });
   await assert.rejects(updateProject("muvr", { hero_image: "x" }, client), error);
+});
+
+// --- updatePublication (ProjectPage/PaperPage summary + image CRUD) -----------
+test("updatePublication updates by slug and returns the selected result", async () => {
+  const row = { slug: "muvr-paper", title: "MUVR Paper", summary_plain: "New plain summary" };
+  const { client, calls } = writeSelectClient({ data: row, error: null });
+  const result = await updatePublication("muvr-paper", { summary_plain: "New plain summary" }, client);
+  assert.deepEqual(result, row);
+  assert.deepEqual(calls[0], ["update", { summary_plain: "New plain summary" }]);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "eq"),
+    ["eq", "slug", "muvr-paper"],
+  );
+});
+
+test("updatePublication throws on a Supabase error", async () => {
+  const error = { message: "not authorized" };
+  const { client } = writeSelectClient({ data: null, error });
+  await assert.rejects(updatePublication("muvr-paper", { image: "x" }, client), error);
 });
 
 // --- personProjectSlugs / deletePerson (delete-guard) -------------------------

@@ -11,6 +11,7 @@ import {
   slugify,
   photoPath,
   projectImagePath,
+  paperImagePath,
 } from "./format.js";
 
 test("groupByYear sorts years newest first", () => {
@@ -115,4 +116,13 @@ test("projectImagePath uses the project's own slug and the file's extension", ()
 
 test("projectImagePath falls back to jpg when the file name has no extension", () => {
   assert.equal(projectImagePath("muvr", { name: "" }), "projects/muvr.jpg");
+});
+
+// --- paperImagePath (PaperPage.jsx's paper-image upload path) ----------------
+test("paperImagePath uses the paper's own slug and the file's extension", () => {
+  assert.equal(paperImagePath("muvr-2024", { name: "fig1.PNG" }), "papers/muvr-2024.png");
+});
+
+test("paperImagePath falls back to jpg when the file name has no extension", () => {
+  assert.equal(paperImagePath("muvr-2024", { name: "" }), "papers/muvr-2024.jpg");
 });
