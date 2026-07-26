@@ -331,8 +331,12 @@ strong {
   color: inherit;
 }
 
+/* The struck-out "link"/"bibtex" affordances on papers with no URL. Kept a
+   step below live text so it still reads as unavailable, but at the same
+   muted tier as the `.pub-meta` line beside it — #bbb measured 1.92:1 on
+   white, which is not "de-emphasised", it's unreadable. */
 .pub strike {
-  color: #bbb;
+  color: #888;
 }
 
 .pub pre.bibtex {
@@ -346,9 +350,22 @@ strong {
 }
 
 /* --- footer / states ------------------------------------------------------ */
+/* Was `#00000022`, which composited to 1.36:1 on white and 1.01:1 on the dark
+   body — i.e. the copyright line was invisible, not subtle. Now the same muted
+   tier as `.subtitle`/`.state`/`.pub-meta`. */
 footer {
-  color: #00000022;
+  color: #888;
   margin-top: 2em;
+}
+
+/* App.jsx's low-key PI entry point is a deliberately bare <a> that inherits
+   the footer's color, so it was only near-invisible because that color was
+   `#00000022`. Pinned to the old value here so raising the copyright line's
+   contrast above doesn't promote this link into a visible nav item — it
+   renders exactly as it did before. `footer a[href=...]` is (0,1,1) and so
+   outranks the `footer` rules in both colour schemes. */
+footer a[href="#/admin"] {
+  color: #00000022;
 }
 
 .state {
@@ -697,3 +714,48 @@ footer {
 /* subtle link to the /variants design gallery */
 .footer-link { color: #1a56db; text-decoration: none; }
 .footer-link:hover { text-decoration: underline; }
+
+/* --- prefers-color-scheme: dark — contrast-audit follow-ups ---------------- */
+/* Colours in this file that were never given a dark-scheme counterpart, so
+   they kept a light-scheme value against the dark body and measured between
+   1.01:1 and 2.93:1. Every ratio below was measured in a real browser with
+   the audit's own compositing maths, not computed from the hex by hand. */
+@media (prefers-color-scheme: dark) {
+  /* 1.01:1 -> 8.30:1. The `footer a[href="#/admin"]` pin above is (0,1,1) and
+     still wins here, so the hidden Admin link is unaffected. */
+  footer,
+  /* 10.05:1 -> 8.30:1; unchanged in spirit, just moved onto the shared muted
+     tier now that the light-scheme value is #888 rather than #bbb. */
+  .pub strike {
+    color: #aaa;
+  }
+
+  /* `color: inherit` already picked up the dark body text, but the near-white
+     `#fafafa` fill did not invert: 1.17:1. Mirrors admin.css's dark
+     `.admin-btn`, which this button is styled from. The text colour is
+     restated rather than left to `inherit` so the fill and the text can never
+     be resolved from different schemes: same computed value, 14.64:1. */
+  .load-more {
+    background: #16171b;
+    border-color: #333;
+    color: #e8e8ea;
+  }
+
+  /* 2.93:1. Same hue and saturation as the light-scheme `#1155cc`, lightened
+     until it clears AA against the `#0d0e12` body: 7.04:1. */
+  .breadcrumb a,
+  .prose a {
+    color: #6a9cf3;
+  }
+
+  /* The hero frame letterboxes `object-fit: contain` images, so its fill is
+     visible around them; left at `#f6f6f6` it stayed a glaring light slab in
+     dark mode and, worse, its own overlaid labels ("Add image"/"Replace",
+     inheriting the dark body text) measured 1.13:1 against it. Darkening the
+     container is also what admin.css's dark `.editable-image__placeholder`
+     (#999) and `__filename` (#aaa) already assume: 2.64:1 -> 6.03:1. */
+  .project-hero,
+  .paper-hero {
+    background: #1a1b20;
+  }
+}
