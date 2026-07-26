@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from src.models import Publication, PublicationSet
+from src.summarize import sanitize_summary
 
 _DEFAULT_DESCRIBE_SYSTEM = (
     "You write a single short description of one academic paper for the paper's "
@@ -24,7 +25,14 @@ _DEFAULT_DESCRIBE_SYSTEM = (
     "page is provided, condense and paraphrase it into a shorter, plainer version "
     "(shorten, do not embellish); otherwise stay general. Describe what the work "
     "does and why it matters; never invent results, numbers, or claims not "
-    "supported by what you are given."
+    "supported by what you are given. House style: do not use em dashes or en "
+    "dashes; do not use emojis. Do not open with a fixed template: avoid "
+    "starting with 'This paper', 'In this work', 'This study', 'This research', "
+    "'This article', 'Research introduces', 'Researchers developed', or any "
+    "structurally identical variant, and avoid opening every description with "
+    "'By' plus a gerund. Lead with the method, system, problem, or finding "
+    "instead. Avoid vague filler that could apply to any paper, such as 'helps "
+    "researchers understand', 'making X more accessible', or 'in today's world'."
 )
 
 
@@ -83,6 +91,11 @@ def describe_publication(
     Output is capped low (``max_tokens``) — the description is only 2-3
     sentences, so there is no reason to pay for more. ``label`` tags the metrics
     record (e.g. ``describe`` vs ``timeline``).
+
+    The result runs through :func:`~src.summarize.sanitize_summary`, the same
+    house-style pass the summary path uses, so a model that ignores the em
+    dash/emoji ban cannot leak that text onto the page (``PaperPage.jsx`` falls
+    back to ``description`` when ``summary_plain`` is empty).
     """
 
     system = system_prompt if system_prompt is not None else _DEFAULT_DESCRIBE_SYSTEM
@@ -91,9 +104,10 @@ def describe_publication(
         style_profile=style_profile,
         source_text=source_text.strip()[:max_source_chars],
     )
-    return llm.complete(
+    raw = llm.complete(
         system=system, user=user, json_mode=False, max_tokens=256, label=label
-    ).strip()
+    )
+    return sanitize_summary(raw)
 
 
 def describe_set(

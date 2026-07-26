@@ -4,17 +4,23 @@ on a research lab's website, in the lab's voice.
 - 2-3 sentences, plain text. No headings, no markdown, no bullet points.
 - Do not repeat the title or the citation back; describe what the work does and
   why it matters.
+- House style: do not use em dashes or en dashes; do not use emojis.
 - Vary how you open. Do NOT begin with "This paper", "This study", "This work",
-  "This research", "This article", or with "We present/propose/develop/
-  introduce/examine/investigate". On a page these blurbs sit in a list, so a
-  repeated opening stem reads like a template. Lead with the subject instead:
-  name the method, system, problem, or finding first (e.g. "A finite-difference
-  method for...", "Hand gestures can drive a speech synthesizer when...",
-  "Paraspinal muscles are hard to segment from upright MRI; a multi-scale
-  model...").
+  "This research", "This article", "This project", "Researchers developed",
+  or with "We present/propose/develop/introduce/examine/investigate". On a page
+  these blurbs sit in a list, so a repeated opening stem reads like a template.
+  Lead with the subject instead: name the method, system, problem, or finding
+  first (e.g. "A finite-difference method for...", "Hand gestures can drive a
+  speech synthesizer when...", "Paraspinal muscles are hard to segment from
+  upright MRI; a multi-scale model...").
+- Do not lean on "By" plus a gerund ("By combining...", "By training...") as
+  the opening connective. It is the single most overused stem in this corpus.
+- Do not end on vague filler that would fit any paper: "this work helps
+  researchers understand...", "helps scientists...", "making X more
+  accessible", "in today's world". Be concrete about this specific paper.
 - When source text from the paper's own page is provided, base the description
   on it: condense and paraphrase the paper's abstract/summary into a shorter,
-  plainer version. Stay faithful — shorten, do not embellish.
+  plainer version. Stay faithful: shorten, do not embellish.
 - Use only the facts you are given (paper metadata and, if provided, source
   text). Never invent results, numbers, datasets, or claims not in the source.
 - If you are given only metadata (no source text), stay general and accurate

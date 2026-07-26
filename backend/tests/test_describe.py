@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from src.describe import (
+    _DEFAULT_DESCRIBE_SYSTEM,
     build_describe_prompt,
+    describe_publication,
     describe_set,
+    load_describe_system_prompt,
 )
 from src.models import Publication, PublicationSet
+
+_TEMPLATES = Path(__file__).resolve().parents[1] / "data" / "templates"
 
 
 class FakeLLM:
@@ -35,6 +43,38 @@ def test_build_prompt_includes_style_metadata_and_source():
     assert "Title a" in prompt
     assert "A Person" in prompt
     assert "ABSTRACT" in prompt
+
+
+def test_describe_publication_applies_the_house_style():
+    # PaperPage.jsx falls back to `description` when `summary_plain` is empty,
+    # so this path needs the same sanitizer the summary path has always had.
+    llm = FakeLLM("The tongue–jaw linkage, a coupled system — is modelled here. 🎉")
+    out = describe_publication(_pub("a"), llm=llm)
+    assert "—" not in out and "🎉" not in out
+    assert "tongue-jaw" in out  # compound survives as a hyphen, not a comma
+
+
+def test_describe_publication_still_strips_surrounding_whitespace():
+    llm = FakeLLM("  A neat result.  \n")
+    assert describe_publication(_pub("a"), llm=llm) == "A neat result."
+
+
+def test_default_describe_prompt_practises_its_own_house_style():
+    assert not re.search(r"[—–]", _DEFAULT_DESCRIBE_SYSTEM)
+    lowered = _DEFAULT_DESCRIBE_SYSTEM.lower()
+    assert "em dash" in lowered
+    assert "emoji" in lowered
+    assert "this paper" in lowered  # filler-opener ban
+
+
+def test_shipped_describe_template_carries_the_same_rules():
+    # The template file overrides the module default at runtime, so a rule that
+    # only lives in Python is inert in production.
+    text = load_describe_system_prompt(_TEMPLATES)
+    assert text != _DEFAULT_DESCRIBE_SYSTEM  # the file really is being read
+    assert not re.search(r"[—–]", text)
+    lowered = text.lower()
+    assert "em dash" in lowered and "emoji" in lowered
 
 
 def test_describe_set_fills_only_missing_by_default():
