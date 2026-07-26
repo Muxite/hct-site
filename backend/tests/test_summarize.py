@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from src.models import Publication
 from src.summarize import (
     STYLES,
+    SUMMARY_SYSTEM,
     SummaryEval,
     build_summary_prompt,
     evaluate_summary,
@@ -81,6 +84,27 @@ def test_voice_profile_appends_distinct_block_without_altering_style_profile():
     assert with_voice.startswith(style_prefix)
 
 
+def test_voice_block_states_that_style_and_grounding_win():
+    # Without a precedence rule the voice profile overrides the style's length
+    # and shape constraints, which is exactly what a live test showed happening.
+    prompt = build_summary_prompt(
+        _pub(), style_profile=STYLES["C"], voice_profile="Long, discursive paragraphs.",
+        context="",
+    )
+    lowered = prompt.lower()
+    assert "the style and the grounding rules win" in lowered
+    # The rule sits in the voice block, after the profile it qualifies.
+    assert lowered.index("long, discursive paragraphs.") < lowered.index(
+        "the style and the grounding rules win"
+    )
+
+
+def test_summary_system_prompt_practises_its_own_dash_ban():
+    # The prompt bans em/en dashes; using them in the instruction itself teaches
+    # the model the opposite register.
+    assert not re.search(r"[—–]", SUMMARY_SYSTEM)
+
+
 def test_voice_profile_omitted_when_blank():
     prompt = build_summary_prompt(_pub(), style_profile=STYLES["A"], voice_profile="   ", context="")
     assert "writing voice" not in prompt.lower()
@@ -124,6 +148,21 @@ def test_sanitize_en_dash_range_to_hyphen():
 
 def test_sanitize_other_en_dash_to_comma():
     assert sanitize_summary("cats – dogs") == "cats, dogs"
+
+
+def test_sanitize_unspaced_en_dash_in_compound_becomes_hyphen():
+    # Regression: the fallback rule used to turn every remaining en dash into a
+    # comma, so a compound word came back as a comma splice ("tongue, jaw").
+    assert sanitize_summary("tongue–jaw coordination") == "tongue-jaw coordination"
+
+
+def test_sanitize_unspaced_en_dash_in_name_pair_becomes_hyphen():
+    assert sanitize_summary("the Fels–Pai model") == "the Fels-Pai model"
+
+
+def test_sanitize_distinguishes_spaced_from_unspaced_en_dash():
+    out = sanitize_summary("The tongue–jaw linkage – the core idea – is measured.")
+    assert out == "The tongue-jaw linkage, the core idea, is measured."
 
 
 def test_sanitize_strips_emoji_keeps_arrows():
@@ -173,6 +212,115 @@ def test_evaluate_flags_ungrounded_numbers():
 def test_evaluate_flags_too_short():
     ev = evaluate_summary("Too short.", _pub())
     assert ev.too_short is True
+
+
+def test_evaluate_flags_by_gerund_connective():
+    # The most common tell in the live corpus: 70 of 72 sampled summaries.
+    ev = evaluate_summary(
+        "By combining ultrasound with a biomechanical model, the system tracks tongue motion.",
+        _pub(),
+    )
+    assert ev.gerund_connective is True
+    assert "B" in ev.flags
+    assert ev.clean is False
+
+
+def test_evaluate_flags_by_gerund_mid_text():
+    ev = evaluate_summary(
+        "A biomechanical model tracks tongue motion. By training on paired scans, "
+        "it generalizes to unseen speakers.",
+        _pub(),
+    )
+    assert ev.gerund_connective is True
+
+
+def test_evaluate_lowercase_by_gerund_is_not_flagged():
+    # "by combining" mid-sentence is ordinary English, not the stock connective.
+    ev = evaluate_summary(
+        "Tongue motion is recovered by combining ultrasound with a biomechanical model.",
+        _pub(),
+    )
+    assert ev.gerund_connective is False
+
+
+def test_evaluate_flags_formulaic_closer():
+    ev = evaluate_summary(
+        "Ultrasound and a biomechanical model together recover tongue motion. "
+        "This work helps researchers understand speech production.",
+        _pub(),
+    )
+    assert ev.formulaic_closer is True
+    assert "C" in ev.flags
+    assert ev.clean is False
+
+
+def test_evaluate_flags_helps_audience_closer():
+    ev = evaluate_summary(
+        "A multi-scale segmentation model recovers paraspinal muscle geometry, which "
+        "helps surgeons plan corrective procedures.",
+        _pub(),
+    )
+    assert ev.formulaic_closer is True
+
+
+def test_evaluate_concrete_provides_is_not_a_formulaic_closer():
+    ev = evaluate_summary(
+        "The finite-difference solver provides a closed-form update for each mesh node.",
+        _pub(),
+    )
+    assert ev.formulaic_closer is False
+
+
+# --- shape-based filler openers -------------------------------------------- #
+def test_evaluate_flags_shape_variant_filler_openers():
+    # None of these match any literal entry in the prefix list.
+    for s in (
+        "This project introduces a new segmentation pipeline for upright MRI scans.",
+        "The system reconstructs airway geometry from a handful of sparse scans.",
+        "Researchers created a haptic controller for bimanual selection tasks.",
+        "Researchers used a paired-scan dataset to fit the deformation model.",
+        "Research shows that bimanual input reduces selection time in modeling tasks.",
+    ):
+        assert evaluate_summary(s, _pub()).filler_opening is True, s
+
+
+def test_evaluate_does_not_flag_genuine_subject_first_openers():
+    for s in (
+        "Vocal tract reconstruction from real-time MRI gains a new deep-learning front end.",
+        "A tongue model driven by muscle activation reproduces observed swallow kinematics.",
+        "Two haptic controllers are compared under identical task loads and timings.",
+        "Bimanual input reduces selection time in a three-dimensional modeling task.",
+        "Researchers at three sites contributed the paired-scan dataset used here.",
+    ):
+        assert evaluate_summary(s, _pub()).filler_opening is False, s
+
+
+def test_evaluate_first_person_opener_is_filler_without_a_voice_profile():
+    s = "We build a segmentation pipeline that recovers muscle geometry from upright MRI."
+    assert evaluate_summary(s, _pub()).filler_opening is True
+
+
+def test_evaluate_first_person_opener_allowed_with_a_voice_profile():
+    # A voice profile that asks for first-person plural must not then be scored
+    # as a house-style violation for using it.
+    s = "We build a segmentation pipeline that recovers muscle geometry from upright MRI."
+    ev = evaluate_summary(s, _pub(), voice_profile="First person plural; we build things.")
+    assert ev.filler_opening is False
+    assert ev.clean is True
+
+
+def test_evaluate_voice_profile_does_not_excuse_other_filler_openers():
+    ev = evaluate_summary(
+        "This paper presents a segmentation pipeline for upright MRI scans of the spine.",
+        _pub(),
+        voice_profile="First person plural; we build things.",
+    )
+    assert ev.filler_opening is True
+
+
+def test_evaluate_blank_voice_profile_keeps_first_person_check():
+    s = "We build a segmentation pipeline that recovers muscle geometry from upright MRI."
+    assert evaluate_summary(s, _pub(), voice_profile="   ").filler_opening is True
 
 
 def test_evaluate_thousands_separator_not_ungrounded():

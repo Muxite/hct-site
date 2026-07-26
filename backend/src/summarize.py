@@ -71,6 +71,40 @@ _FILLER_OPENERS = (
 )
 _SENT_SPLIT = re.compile(r"[.!?]+(?:\s|$)")
 
+# First-person openers are only filler when the lab has *not* asked for a
+# first-person voice. ``evaluate_summary(..., voice_profile=...)`` exempts them:
+# a voice profile that says "we build things" would otherwise be flagged for
+# obeying itself.
+_FIRST_PERSON_OPENERS = ("we ",)
+
+# Shape-based filler openers, to catch the variants a literal prefix list keeps
+# missing ("this project introduces", "researchers created a", "research
+# shows"). Deliberately narrow: only the stock "this/the <generic noun>" frame
+# and a "researchers <verb>" lead, and the latter skips prepositional follow-ons
+# ("Researchers at UBC ...") so a genuine subject-first opener is not flagged.
+_FILLER_OPENER_RE = re.compile(
+    r"^(?:in\s+)?(?:this|the)\s+"
+    r"(?:paper|study|work|research|article|project|system|framework|review)\b"
+    r"|^research(?:ers)?\s+"
+    r"(?!at\b|from\b|in\b|into\b|of\b|on\b|and\b|about\b|who\b|with\b|whose\b)\w+",
+    re.IGNORECASE,
+)
+
+# "By <gerund>, ..." at the start of a sentence: the single most common stock
+# connective in the generated corpus (70 of 72 sampled summaries used it).
+_GERUND_CONNECTIVE_RE = re.compile(r"(?:^|[.!?]\s+|\n)By \w+ing\b")
+
+# The formulaic closer family the house style already bans in prose but nothing
+# checked for: "this work helps ...", "this tool aims to ...", "helps
+# researchers understand ...".
+_FORMULAIC_CLOSER_RE = re.compile(
+    r"\bthis\s+(?:work|research|project|tool)\s+"
+    r"(?:helps?|aims?\s+to|provides?|enables?|offers?)\b"
+    r"|\bhelps?\s+"
+    r"(?:researchers|scientists|doctors|surgeons|clinicians|experts|practitioners)\b",
+    re.IGNORECASE,
+)
+
 
 class SupportsComplete(Protocol):
     def complete(self, *, system: str, user: str, **kw: Any) -> str: ...
@@ -85,14 +119,19 @@ def resolve_style(style: str) -> str:
 def sanitize_summary(text: str) -> str:
     """Enforce the house style on generated text: no em/en dashes, no emojis.
 
-    Em dashes become commas; en dashes between digits become hyphens (ranges),
-    other en dashes become commas. Emojis are stripped. Markdown structure
-    (bullets, line breaks) is preserved so bulleted styles still render.
+    Em dashes become commas. En dashes are read by *spacing*, because the two
+    uses are different punctuation: an **unspaced** en dash joins a compound or
+    a name pair ("tongue-jaw", "Fels-Pai") and becomes a plain hyphen, while a
+    **spaced** en dash is a sentence-level break and becomes a comma. Digit
+    ranges ("10-20") are hyphenated whether spaced or not. Emojis are stripped.
+    Markdown structure (bullets, line breaks) is preserved so bulleted styles
+    still render.
     """
 
     text = re.sub(r"\s*—\s*", ", ", text)  # em dash -> comma
     text = re.sub(r"(?<=\d)\s*–\s*(?=\d)", "-", text)  # en dash range -> hyphen
-    text = re.sub(r"\s*–\s*", ", ", text)  # other en dash -> comma
+    text = re.sub(r"(?<=\w)–(?=\w)", "-", text)  # compound / name pair -> hyphen
+    text = re.sub(r"\s*–\s*", ", ", text)  # sentence-break en dash -> comma
     text = _EMOJI.sub("", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" +\n", "\n", text)
@@ -112,12 +151,19 @@ def build_summary_prompt(
     calibration block (``style_profile.profile_text`` from the admin's pasted
     exemplar, see ``src/style.py``/``hct-manager style-regen``) - how the lab
     sounds. The two are independent prompt blocks; supplying one never alters
-    or overwrites the other's instruction.
+    or overwrites the other's instruction. The voice block carries an explicit
+    precedence rule, because without one a voice profile will happily override
+    the style's length and shape constraints.
     """
 
     parts: list[str] = [f"Write the overview in this style:\n{style_profile.strip()}\n"]
     if voice_profile.strip():
-        parts.append(f"Match this lab's writing voice:\n{voice_profile.strip()}\n")
+        parts.append(
+            "Match this lab's writing voice in diction, rhythm, and stance:\n"
+            f"{voice_profile.strip()}\n"
+            "Where that voice conflicts with the requested style's shape, length, "
+            "or grounding rules, the style and the grounding rules win.\n"
+        )
     facts = [
         f"Title: {pub.title}",
         f"Authors: {'; '.join(pub.authors)}",
@@ -192,6 +238,8 @@ class SummaryEval:
     too_short: bool  # < 12 words
     repeats_title: bool
     filler_opening: bool
+    gerund_connective: bool = False  # "By combining X, ..." sentence opener
+    formulaic_closer: bool = False  # "this work helps researchers ..."
     ungrounded_numbers: list[str] = field(default_factory=list)
 
     @property
@@ -203,6 +251,8 @@ class SummaryEval:
             or self.too_short
             or self.repeats_title
             or self.filler_opening
+            or self.gerund_connective
+            or self.formulaic_closer
             or self.ungrounded_numbers
         )
 
@@ -215,12 +265,37 @@ class SummaryEval:
             "S" if self.too_short else "",
             "T" if self.repeats_title else "",
             "F" if self.filler_opening else "",
+            "B" if self.gerund_connective else "",
+            "C" if self.formulaic_closer else "",
             "N" if self.ungrounded_numbers else "",
         ]) or "ok"
 
 
-def evaluate_summary(summary: str, pub: Publication, *, source_text: str = "") -> SummaryEval:
-    """Score one summary against the house style and its grounding source."""
+def _filler_opening(ndesc: str, *, allow_first_person: bool = False) -> bool:
+    """True when ``ndesc`` (normalized) starts with a stock, templated opener.
+
+    Two checks: the literal prefix list, and the shape regex that catches the
+    same frames with different nouns/verbs. ``allow_first_person`` drops "we "
+    from the literal list, for the case where the lab's voice profile explicitly
+    asks for first-person plural.
+    """
+
+    openers = _FILLER_OPENERS
+    if allow_first_person:
+        openers = tuple(o for o in openers if o not in _FIRST_PERSON_OPENERS)
+    return ndesc.startswith(openers) or bool(_FILLER_OPENER_RE.match(ndesc))
+
+
+def evaluate_summary(
+    summary: str, pub: Publication, *, source_text: str = "", voice_profile: str = ""
+) -> SummaryEval:
+    """Score one summary against the house style and its grounding source.
+
+    ``voice_profile`` is the lab-voice calibration text the summary was written
+    under (see :func:`build_summary_prompt`). When one is supplied, first-person
+    openers stop counting as filler: a profile that asks for "we" should not
+    then be marked as violating the house style for using it.
+    """
 
     summary = (summary or "").strip()
     words = re.findall(r"\b\w+\b", summary)
@@ -237,6 +312,10 @@ def evaluate_summary(summary: str, pub: Publication, *, source_text: str = "") -
         too_long=(len(words) > 140 or len(sentences) > 8),
         too_short=(len(words) < 12),
         repeats_title=(len(ntitle) > 12 and ntitle in ndesc),
-        filler_opening=ndesc.startswith(_FILLER_OPENERS),
+        filler_opening=_filler_opening(
+            ndesc, allow_first_person=bool(voice_profile.strip())
+        ),
+        gerund_connective=bool(_GERUND_CONNECTIVE_RE.search(summary)),
+        formulaic_closer=bool(_FORMULAIC_CLOSER_RE.search(summary)),
         ungrounded_numbers=sorted(_numbers(summary) - grounded_numbers),
     )
