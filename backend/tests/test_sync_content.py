@@ -298,13 +298,15 @@ def test_sync_content_people_upserts_via_bulk_sync_not_replace(tmp_path):
     assert "people" not in sb.inserted_missing
 
 
-def test_sync_content_people_bulk_sync_inserts_deletes_and_fills_only_empty(tmp_path):
-    """The three-way bulk-sync contract for `people`, proven against live state:
-    a new YAML name is inserted, a name dropped from the YAML is deleted (delete
-    propagation), and for a name present in both, structural fields (kind,
-    sort_order) always follow the YAML while the presentational subset
-    (role/email/photo/bio) is only filled in where still empty -- an
-    already-set value survives untouched.
+def test_sync_content_people_bulk_sync_never_deletes(tmp_path):
+    """`people`'s bulk-sync contract, proven against live state: a new YAML
+    name is inserted, structural fields (kind, sort_order) always follow the
+    YAML for a matched name, the presentational subset (role/email/photo/bio)
+    is only filled in where still empty -- but a name *absent* from the YAML
+    is never deleted (unlike `research`). This is deliberate: the browser
+    admin CMS can insert a person directly, bypassing people.yaml entirely,
+    so deleting on "absent from the YAML" would silently undo that admin
+    action the very next routine resync.
     """
     sb = FakeSupabase(
         live={
@@ -315,8 +317,9 @@ def test_sync_content_people_bulk_sync_inserts_deletes_and_fills_only_empty(tmp_
                     "kind": "alumni", "sort_order": 9,
                 },
                 {
-                    "name": "Departed Person", "role": "Ex", "email": None,
-                    "photo": None, "bio": None, "kind": "alumni", "sort_order": 1,
+                    "name": "Admin-added Person", "role": "Added via browser CMS",
+                    "email": None, "photo": None, "bio": None, "kind": "current",
+                    "sort_order": 1,
                 },
             ]
         }
@@ -328,10 +331,11 @@ def test_sync_content_people_bulk_sync_inserts_deletes_and_fills_only_empty(tmp_
     )
     assert n_people == 3
     live_names = {p["name"] for p in sb.live["people"]}
-    # No longer in people.yaml -> deleted (restores replace()'s old propagation).
-    assert "Departed Person" not in live_names
-    assert sb.deletes == [("people", {"name": "eq.Departed Person"})]
-    # New names inserted.
+    # Absent from people.yaml (added straight through the browser CMS instead)
+    # -> NOT deleted; only an explicit single-row delete removes a person.
+    assert "Admin-added Person" in live_names
+    assert not [d for d in sb.deletes if d[0] == "people"]
+    # New names from the YAML are still inserted.
     assert {"Past Student", "Implicit Current"} <= live_names
     sidney = next(p for p in sb.live["people"] if p["name"] == "Sidney Fels")
     # Structural fields always follow the YAML (this is *why* people.yaml

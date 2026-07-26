@@ -30,16 +30,27 @@ typo'd status fails loudly instead of landing in the database.
 
 The bulk resync (``people``/``research``, driven by this file's YAML loaders)
 is **non-destructive in a specific sense**, not a wholesale replace: a name/
-slug newly present in the YAML is inserted, one no longer present is deleted
-(removing an entry and re-running the sync is a deliberate curation act —
-this is exactly ``replace()``'s old delete propagation, just diffed instead of
-a blind clear-then-reinsert), and for an entry present in both, structural/
-status fields (title, link, image, kind, sort_order, role, email, photo, ...)
-stay fully YAML-driven while a small presentational subset (``research``'s
-``tagline``/``summary``/``hero_image``) is only filled in while still empty,
+slug newly present in the YAML is inserted, and for an entry present in both,
+structural/status fields (title, link, image, kind, sort_order, role, email,
+photo, ...) stay fully YAML-driven while a small presentational subset
+(``research``'s ``tagline``/``summary``/``hero_image``, ``people``'s
+``role``/``email``/``photo``/``bio``) is only filled in while still empty,
 never overwritten — see :func:`_bulk_sync`. That subset is what a future admin
 CMS session can set directly in Supabase, so it must survive a routine,
-automated resync. An explicit single-row edit/delete through ``viewer.py``
+automated resync.
+
+Delete propagation (a row absent from the YAML gets deleted) is **asymmetric**:
+``research`` restores it — removing an entry and re-running the sync is a
+deliberate curation act, exactly ``replace()``'s old delete propagation, just
+diffed instead of a blind clear-then-reinsert — because YAML is the *only*
+way a project is ever created. ``people`` never deletes via this bulk path:
+the browser admin CMS can insert a person directly, bypassing ``people.yaml``
+entirely, and that person would be absent from the YAML by construction, so
+deleting on that basis would silently undo a deliberate admin action.
+Deliberate person deletion still works, just always as an explicit single-row
+action — through ``viewer.py``'s forced delete (for YAML-sourced people) or
+the browser CMS's own delete call — never as a side effect of this bulk
+resync. An explicit single-row edit/delete through ``viewer.py`` more broadly
 does *not* go through this bulk path at all — see its own direct Supabase
 calls, which always take effect.
 """
@@ -244,17 +255,28 @@ def _bulk_sync(
     *,
     key: str,
     fill_fields: tuple[str, ...],
+    delete_stale: bool = True,
 ) -> int:
     """Non-destructive bulk resync of ``table`` from a human-edited YAML file.
 
-    Diffs ``rows`` (freshly parsed from the YAML) against what's currently
-    live in ``table``: a ``key`` present in ``rows`` but not live gets
-    inserted; a ``key`` live but no longer present in ``rows`` gets deleted —
-    removing an entry from the YAML and re-running the bulk sync is a
-    deliberate curation act, so this restores the delete propagation
-    ``replace()`` used to provide (a purely-additive sync would otherwise
-    leave the row a permanent ghost, and viewer.py's edit/delete routes rely
-    on this exact resync to reach Supabase for bulk-file changes).
+    When ``delete_stale`` is true, diffs ``rows`` (freshly parsed from the
+    YAML) against what's currently live in ``table``: a ``key`` present in
+    ``rows`` but not live gets inserted; a ``key`` live but no longer present
+    in ``rows`` gets deleted — removing an entry from the YAML and re-running
+    the bulk sync is a deliberate curation act, so this restores the delete
+    propagation ``replace()`` used to provide (a purely-additive sync would
+    otherwise leave the row a permanent ghost).
+
+    ``delete_stale`` must be false for any table another path can insert a
+    row into without going through this YAML (``people`` — the browser admin
+    CMS can add a person directly; deleting them the next time this sync runs
+    just because they're absent from ``people.yaml`` would defeat the entire
+    point of that direct-add path). ``research`` has no such other creation
+    path, so it keeps ``delete_stale=True``. With ``delete_stale=False``, rows
+    absent from ``rows`` are left alone entirely — no ``select`` is even
+    needed to compute a diff — and a row's only ways to disappear are a
+    direct single-row delete (``viewer.py``, or the browser CMS's own delete
+    call), never an implicit side effect of this bulk resync.
 
     For a ``key`` present in both, everything except ``fill_fields`` goes
     through a normal upsert (so status/order/link/etc. keep following the
@@ -273,10 +295,11 @@ def _bulk_sync(
 
     if not rows:
         return 0
-    live_keys = {r.get(key) for r in supabase.select(table, columns=key)}
-    incoming_keys = {row.get(key) for row in rows}
-    for stale in sorted(live_keys - incoming_keys, key=str):
-        supabase.delete(table, params={key: f"eq.{stale}"})
+    if delete_stale:
+        live_keys = {r.get(key) for r in supabase.select(table, columns=key)}
+        incoming_keys = {row.get(key) for row in rows}
+        for stale in sorted(live_keys - incoming_keys, key=str):
+            supabase.delete(table, params={key: f"eq.{stale}"})
 
     payload = [{k: v for k, v in row.items() if k not in fill_fields} for row in rows]
     n = supabase.upsert(table, payload, on_conflict=key)
@@ -286,7 +309,14 @@ def _bulk_sync(
 
 
 def _sync_people(supabase: Any, rows: list[dict[str, Any]]) -> int:
-    return _bulk_sync(supabase, "people", rows, key="name", fill_fields=_PEOPLE_FILL_FIELDS)
+    # delete_stale=False: the browser admin CMS can insert a person directly
+    # (never touching people.yaml), so a routine resync must never delete
+    # someone just because their name is absent from the YAML -- see
+    # docs/PROJECTS.md.
+    return _bulk_sync(
+        supabase, "people", rows, key="name", fill_fields=_PEOPLE_FILL_FIELDS,
+        delete_stale=False,
+    )
 
 
 def _sync_research(supabase: Any, rows: list[dict[str, Any]]) -> int:
@@ -377,15 +407,19 @@ def sync_content(
     is used and no project relationships are written.
 
     Non-destructive bulk resync for both tables (see :func:`_bulk_sync`): a
-    name/slug newly present in the YAML is inserted, one no longer present is
-    deleted (restoring ``replace()``'s delete propagation), and for a row
-    present in both, structural fields (title, link, image, kind, sort_order,
-    ...) keep following the YAML while a small presentational subset
-    (``people``'s role/email/photo/bio, ``research``'s
-    tagline/summary/hero_image) is only filled in where still empty, never
-    overwritten. This is the *bulk* path only -- ``viewer.py``'s single-row
+    name/slug newly present in the YAML is inserted, and for a row present in
+    both, structural fields (title, link, image, kind, sort_order, ...) keep
+    following the YAML while a small presentational subset (``people``'s
+    role/email/photo/bio, ``research``'s tagline/summary/hero_image) is only
+    filled in where still empty, never overwritten. Delete propagation is
+    asymmetric: ``research`` deletes a slug no longer in the YAML (it's the
+    only way a project is created); ``people`` never deletes here, since the
+    browser admin CMS can add a person directly, bypassing ``people.yaml`` --
+    deleting them for being absent from that file would undo a deliberate
+    admin action. This is the *bulk* path only -- ``viewer.py``'s single-row
     edit/add/delete routes write straight to Supabase instead (see that
-    module), so an explicit maintainer action there always takes effect.
+    module), so an explicit maintainer action there always takes effect,
+    deletion included.
 
     Returns ``(people_written, research_written)``. Every file is parsed and
     validated *before* the first write, so a broken file never half-syncs.

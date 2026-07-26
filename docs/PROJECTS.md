@@ -160,3 +160,16 @@ Sequenced so all the no-API work lands first (the key is off):
   known limitation (document it in the admin UI) or design a real
   reconciliation mechanism (e.g. an explicit "last changed by" marker) before
   relying on it.
+- **Delete propagation is asymmetric between `research` and `people`**:
+  `hct-manager sync-content`'s bulk resync deletes a `research` slug that's no
+  longer in `research.yaml`/`projects.yaml` (YAML is the *only* way a project
+  is ever created, so removing an entry and re-syncing is unambiguous
+  curation) — but it never deletes a `people` row just because their name is
+  absent from `people.yaml`. That's deliberate: the admin CMS can insert a
+  person directly, bypassing `people.yaml` entirely, and that person is
+  absent from the YAML by construction; if the bulk sync deleted on that
+  basis, the very next routine `sync-content` run would silently undo the
+  admin's add. Deliberate person deletion still works, just always as an
+  explicit single-row action — `viewer.py`'s forced delete (for YAML-sourced
+  people) or the CMS's own `deletePerson` call — never as a side effect of
+  "remove them from `people.yaml` and re-run sync-content."
