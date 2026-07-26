@@ -65,35 +65,37 @@ export default function App() {
     };
   }, []);
 
-  if (isChromeless(path)) {
-    return (
+  const body = isChromeless(path) ? (
+    <Suspense fallback={<div className="state">Loading…</div>}>
+      <Route path={path} meta={meta} />
+    </Suspense>
+  ) : (
+    <main>
+      <Header meta={meta} />
+      {error && (
+        <div className="state state--error">
+          Couldn’t reach the lab database — {String(error.message || error)}
+        </div>
+      )}
       <Suspense fallback={<div className="state">Loading…</div>}>
         <Route path={path} meta={meta} />
       </Suspense>
-    );
-  }
-
-  return (
-    <AdminProvider>
-      <main>
-        <Header meta={meta} />
-        {error && (
-          <div className="state state--error">
-            Couldn’t reach the lab database — {String(error.message || error)}
-          </div>
-        )}
-        <Suspense fallback={<div className="state">Loading…</div>}>
-          <Route path={path} meta={meta} />
-        </Suspense>
-        <footer>
-          Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.{" "}
-          <a href="#/" className="footer-link">Home →</a>{" "}
-          {/* Deliberately bare (no .footer-link) — inherits the footer's own
-              near-invisible color instead of the bright "Home →" blue. A
-              low-key entry point for the lab PI, not a public nav item. */}
-          <a href="#/admin">Admin</a>
-        </footer>
-      </main>
-    </AdminProvider>
+      <footer>
+        Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.{" "}
+        <a href="#/" className="footer-link">Home →</a>{" "}
+        {/* Deliberately bare (no .footer-link) — inherits the footer's own
+            near-invisible color instead of the bright "Home →" blue. A
+            low-key entry point for the lab PI, not a public nav item. */}
+        <a href="#/admin">Admin</a>
+      </footer>
+    </main>
   );
+
+  // <AdminProvider> wraps *both* branches, not just the chrome one. The
+  // chromeless branch is the site's actual default homepage, and everything
+  // it renders — SiteHome, plus Home/People underneath it on Classic — calls
+  // useAdmin(), which throws when there's no provider above it. Nothing here
+  // is an error boundary, so leaving that branch unwrapped meant a blank page
+  // for every visitor to "/".
+  return <AdminProvider>{body}</AdminProvider>;
 }
