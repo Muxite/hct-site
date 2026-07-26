@@ -504,6 +504,22 @@ textarea.editable-text__field {
   color: #fff;
 }
 
+/* `.vlab .admin-btn:disabled` above sets `color: var(--v-faint)`; adding
+   `:disabled` to a selector already matched here (0,2,1 vs this rule's 0,2,0)
+   wins on specificity regardless of source order, so a disabled primary
+   button — "Add person" before a name is typed, "Save exemplar"/"Upload &
+   sync now" mid-validation — was losing its white text back to `--v-faint`
+   while keeping this rule's blue background. In Signal-dark `--v-faint`
+   (#5f6875) sits almost the same luminance as that blue (#1a56db): ~1.1:1
+   contrast, i.e. unreadable. Restating `color: #fff` here and dimming with
+   `opacity` instead (same disabled convention as `.vlab-switch__mode:disabled`
+   in variants.css) keeps the button's own text-vs-fill contrast intact while
+   still reading as disabled. */
+.vlab .admin-btn--primary:disabled {
+  color: #fff;
+  opacity: .55;
+}
+
 .vlab .admin-person-form input,
 .vlab .admin-person-form select,
 .vlab .admin-person-form textarea,

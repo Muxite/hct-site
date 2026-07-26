@@ -12,7 +12,14 @@
    =========================================================================== */
 
 .vlab-gallery {
-  margin: -24px;              /* cancel the app <main> padding for a full-bleed shell */
+  /* No `<main>` padding to cancel here: App.jsx's isChromeless routes ("/" and
+     "/variants", the only places this class is used) render this div directly
+     under #root, never inside the padded `<main>` from styles.css. A negative
+     margin with nothing to offset was pushing every look 24px past the
+     viewport edge on both axes (visible as a permanent horizontal scrollbar) —
+     removed rather than reintroducing a `<main>` wrapper just to cancel back
+     out again. */
+  margin: 0;
   min-height: 100vh;
 }
 
