@@ -6,6 +6,8 @@
     hct-manager analyze-style FILE [--save]   write/print a style profile
     hct-manager describe [--all] [--fetch] [--limit N]   write lab-voice descriptions
     hct-manager enrich [--limit N]     fill citation_count/concepts/oa_status via OpenAlex
+    hct-manager extract-figures [--limit N]
+                                       best-effort figure extraction (PyMuPDF) into site-media
     hct-manager qa [--out PATH] [--no-source-check] [--strict]
                                        QA report on the live Supabase data
     hct-manager health                 check the ujin scrape service
@@ -241,6 +243,29 @@ def _cmd_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_extract_figures(args: argparse.Namespace) -> int:
+    """Best-effort figure extraction (PyMuPDF, no LLM) into Supabase Storage.
+
+    Scoped to project-linked publications missing an image (the curated
+    project-page subset, not the full archive) — see ``src/figures.py`` for
+    the discovery -> download -> render -> upload -> fill-if-empty pipeline
+    and its silent-on-any-failure discipline.
+    """
+    from src import figures
+
+    cfg = Config.from_env()
+    with _make_supabase(cfg) as sb, _make_paper_sources(cfg) as sources:
+        written = figures.extract_figures(
+            sb, sources, sb_url=cfg.sb_url, sb_key=cfg.sb_secret_key, limit=args.limit,
+        )
+
+    if written == 0:
+        print("No figures extracted (nothing missing, no OA PDF resolved, or nothing usable found).")
+        return 0
+    print(f"Extracted {written} figure(s) into Supabase Storage and set publications.image.")
+    return 0
+
+
 def _cmd_qa(args: argparse.Namespace) -> int:
     """Pull the live Supabase data and write a plain-text QA report.
 
@@ -385,6 +410,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=None, help="cap how many publications to enrich this run"
     )
     p_enrich.set_defaults(func=_cmd_enrich)
+
+    p_figs = sub.add_parser(
+        "extract-figures",
+        help="best-effort figure extraction from OA PDFs into site-media (PyMuPDF, no LLM)",
+    )
+    p_figs.add_argument(
+        "--limit", type=int, default=None, help="cap how many publications to process this run"
+    )
+    p_figs.set_defaults(func=_cmd_extract_figures)
 
     p_qa = sub.add_parser("qa", help="QA report on the live Supabase data")
     p_qa.add_argument(

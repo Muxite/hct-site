@@ -65,6 +65,16 @@ def test_parser_enrich_limit():
     assert args.limit == 10
 
 
+def test_parser_extract_figures_defaults():
+    args = cli.build_parser().parse_args(["extract-figures"])
+    assert args.command == "extract-figures" and args.limit is None
+
+
+def test_parser_extract_figures_limit():
+    args = cli.build_parser().parse_args(["extract-figures", "--limit", "10"])
+    assert args.limit == 10
+
+
 def test_parser_qa_defaults():
     args = cli.build_parser().parse_args(["qa"])
     assert args.command == "qa"
@@ -288,6 +298,40 @@ def test_enrich_command_passes_limit_and_reports_noop(monkeypatch, capsys):
     assert rc == 0
     assert seen["limit"] == 5
     assert "No publications enriched" in capsys.readouterr().out
+
+
+def test_extract_figures_command_prints_summary(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(cli, "_make_paper_sources", lambda cfg: _NullCtx())
+    seen = {}
+
+    def fake_extract(sb, sources, *, sb_url, sb_key, limit=None):
+        seen["sb_url"] = sb_url
+        seen["sb_key"] = sb_key
+        seen["limit"] = limit
+        return 2
+
+    monkeypatch.setattr("src.figures.extract_figures", fake_extract)
+    rc = cli.main(["extract-figures"])
+    assert rc == 0
+    assert seen["limit"] is None
+    assert "Extracted 2 figure" in capsys.readouterr().out
+
+
+def test_extract_figures_command_passes_limit_and_reports_noop(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(cli, "_make_paper_sources", lambda cfg: _NullCtx())
+    seen = {}
+
+    def fake_extract(sb, sources, *, sb_url, sb_key, limit=None):
+        seen["limit"] = limit
+        return 0
+
+    monkeypatch.setattr("src.figures.extract_figures", fake_extract)
+    rc = cli.main(["extract-figures", "--limit", "5"])
+    assert rc == 0
+    assert seen["limit"] == 5
+    assert "No figures extracted" in capsys.readouterr().out
 
 
 def test_health_command(monkeypatch, capsys):
