@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { getPeople, getProjects, getSiteContent, updateSiteContent } from "../data/db.js";
-import { splitByKind } from "../lib/format.js";
 import { useAdmin } from "../context/AdminContext.jsx";
 import EditableText from "./EditableText.jsx";
 import Prose from "./Prose.jsx";
@@ -51,10 +50,6 @@ export default function Home() {
   }
 
   const { content, people, projects } = data;
-  // Featured = current status; the rest (past/archived projects) only show
-  // up when you click through to the full projects page.
-  const [featuredProjects, archivedProjects] = splitByKind(projects, "archived");
-  const archivedCount = archivedProjects.length;
 
   // Persists the edit, then folds the same value into local state so the
   // read view (which renders straight from `content[key]`, not from
@@ -97,14 +92,11 @@ export default function Home() {
       <People people={people} />
 
       <h2>Projects</h2>
-      <Research projects={featuredProjects} />
-      {archivedCount > 0 && (
-        <div className="note">
-          <a href="#/projects">
-            See all {projects.length} projects — including {archivedCount} past projects →
-          </a>
-        </div>
-      )}
+      <Research projects={projects} />
+      <div className="note">
+        For past projects, see our old HCT site{" "}
+        <a href="https://hct.ece.ubc.ca/research">research page</a>.
+      </div>
 
       {proseSection("contact")}
       {proseSection("land_acknowledgment")}
@@ -115,7 +107,7 @@ export default function Home() {
       <h2 className="section" id="publications">
         Publications
       </h2>
-      <Publications limit={8} moreHref="#/papers" />
+      <Publications />
     </>
   );
 }
