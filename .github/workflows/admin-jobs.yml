@@ -1,0 +1,63 @@
+name: admin-jobs
+
+# Manually triggered — either from the Actions tab, or (once Task 11's
+# frontend/api/trigger-job.js exists) programmatically via GitHub's REST API
+# ("workflow dispatch") from the admin page's job-trigger UI. `job_type`
+# selects which one-shot backend pipeline step to run.
+#
+# Both job types are pure-Python and have no dependency on the ujin scrape
+# service / docker-compose used for local dev (see docker-compose.yml):
+# CV parsing and style analysis never touch a scraper — only Google Scholar
+# sources need ujin, and Scholar is disabled by default.
+on:
+  workflow_dispatch:
+    inputs:
+      job_type:
+        description: "Which admin job to run"
+        required: true
+        type: choice
+        default: cv-sync
+        options:
+          - cv-sync
+          - style-regen
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      # Config.data_dir (backend/src/config.py) defaults to two directories
+      # above config.py itself, which only resolves to <repo>/backend/data
+      # when running from an editable checkout. A `pip install ./backend`
+      # here installs into site-packages, so that default resolves to
+      # somewhere under site-packages instead — HCT_DATA_DIR must be set
+      # explicitly to point back at the checked-out data/ directory (sources,
+      # templates, inputs, state). This mirrors backend/Dockerfile's
+      # `ENV HCT_DATA_DIR=/app/data` for the same reason.
+      HCT_DATA_DIR: ${{ github.workspace }}/backend/data
+      # Repo secrets — configure these under Settings > Secrets and
+      # variables > Actions. Never hardcode real values here.
+      SB_URL: ${{ secrets.SB_URL }}
+      SB_SEC_KEY: ${{ secrets.SB_SEC_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install hct-manager
+        run: pip install ./backend
+
+      - name: cv-sync — fetch the uploaded CV, re-run the CV pipeline
+        if: ${{ inputs.job_type == 'cv-sync' }}
+        run: hct-manager fetch-cv && hct-manager run
+
+      - name: style-regen — regenerate the style profile from source_excerpt
+        if: ${{ inputs.job_type == 'style-regen' }}
+        run: hct-manager style-regen

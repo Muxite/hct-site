@@ -4,6 +4,9 @@
     hct-manager sync-content [--people PATH] [--research PATH] [--site PATH]
                                        people.yaml/research.yaml/site.yaml -> Supabase
     hct-manager analyze-style FILE [--save]   write/print a style profile
+    hct-manager fetch-cv               download the admin-uploaded CV (cv-uploads/cv/current.docx)
+                                       from Supabase Storage into the inbox
+    hct-manager style-regen            regenerate style_profile.profile_text from source_excerpt
     hct-manager describe [--all] [--fetch] [--limit N]   write lab-voice descriptions
     hct-manager enrich [--limit N]     fill citation_count/concepts/oa_status via OpenAlex
     hct-manager extract-figures [--limit N]
@@ -171,6 +174,56 @@ def _cmd_analyze_style(args: argparse.Namespace) -> int:
         print(f"Saved style profile to {out}")
     else:
         print(profile)
+    return 0
+
+
+def _cmd_fetch_cv(args: argparse.Namespace) -> int:
+    """Download the admin-uploaded CV from Supabase Storage into the inbox.
+
+    Fetches the fixed ``cv-uploads/cv/current.docx`` object (overwritten each
+    time the admin UI uploads a new CV — see ``db/schema.sql`` and
+    ``frontend/src/data/storage.js``) into ``inbox/fels-cv.docx``. The
+    existing "same-named inbox file wins" precedence rule (see
+    ``orchestrate._fetch_source``) then makes the next ``run`` prefer this
+    file over the committed ``inputs/fels-cv.docx`` — no changes needed to
+    ``orchestrate.py`` or the CV parser. Meant to run right before
+    ``hct-manager run`` in the CI job (see ``.github/workflows/admin-jobs.yml``).
+    """
+    from src import storage
+
+    cfg = Config.from_env()
+    dest = cfg.inbox_dir / "fels-cv.docx"
+    storage.download_object(
+        cfg.sb_url, cfg.sb_secret_key, "cv-uploads", "cv/current.docx", dest,
+    )
+    print(f"Fetched cv-uploads/cv/current.docx -> {dest}")
+    return 0
+
+
+def _cmd_style_regen(args: argparse.Namespace) -> int:
+    """Regenerate the admin's style profile from its saved source excerpt.
+
+    Reads ``style_profile.source_excerpt`` (the raw text an admin pasted/
+    uploaded via the admin UI), runs it through ``style.analyze_style()``
+    (thin LLM wiring for now — full voice-profile integration into
+    describe/summarize is a later task), and writes the result back to
+    ``style_profile.profile_text``. A missing row or empty excerpt is a
+    no-op: nothing has been supplied to analyze yet.
+    """
+    cfg = Config.from_env()
+    with _make_supabase(cfg) as sb:
+        rows = sb.select("style_profile", params={"id": "eq.default"})
+        excerpt = (rows[0].get("source_excerpt") or "").strip() if rows else ""
+        if not excerpt:
+            print("No style_profile.source_excerpt set; nothing to do.")
+            return 0
+
+        system = load_style_system_prompt(cfg.templates_dir)
+        with _make_llm(cfg) as llm:
+            profile = analyze_style(excerpt, llm=llm, system_prompt=system)
+
+        sb.update("style_profile", {"profile_text": profile}, params={"id": "eq.default"})
+    print("Wrote style_profile.profile_text.")
     return 0
 
 
@@ -389,6 +442,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--save", action="store_true", help="save profile to state/style_profile.txt"
     )
     p_style.set_defaults(func=_cmd_analyze_style)
+
+    p_fetch_cv = sub.add_parser(
+        "fetch-cv",
+        help="download cv-uploads/cv/current.docx from Supabase Storage into the inbox",
+    )
+    p_fetch_cv.set_defaults(func=_cmd_fetch_cv)
+
+    p_style_regen = sub.add_parser(
+        "style-regen",
+        help="regenerate style_profile.profile_text from style_profile.source_excerpt",
+    )
+    p_style_regen.set_defaults(func=_cmd_style_regen)
 
     p_desc = sub.add_parser("describe", help="write lab-voice descriptions into Supabase")
     p_desc.add_argument(

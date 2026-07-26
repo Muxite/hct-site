@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src import cli
@@ -22,6 +24,16 @@ def test_parser_run_default_no_force():
 def test_parser_analyze_style():
     args = cli.build_parser().parse_args(["analyze-style", "cv.docx", "--save"])
     assert args.path == "cv.docx" and args.save is True
+
+
+def test_parser_fetch_cv():
+    args = cli.build_parser().parse_args(["fetch-cv"])
+    assert args.command == "fetch-cv"
+
+
+def test_parser_style_regen():
+    args = cli.build_parser().parse_args(["style-regen"])
+    assert args.command == "style-regen"
 
 
 def test_parser_sync_content_defaults():
@@ -201,6 +213,10 @@ class _FakeSupabase:
         self.inserted_missing.setdefault(table, []).extend(rows)
         return len(rows)
 
+    def update(self, table, values, *, params):
+        self.updated = getattr(self, "updated", [])
+        self.updated.append((table, dict(values), dict(params)))
+
 
 def test_sync_content_command(monkeypatch, capsys, tmp_path):
     _patch_common(monkeypatch)
@@ -339,3 +355,86 @@ def test_health_command(monkeypatch, capsys):
     rc = cli.main(["health"])
     assert rc == 0
     assert "OK" in capsys.readouterr().out
+
+
+def test_fetch_cv_command_downloads_into_inbox(monkeypatch, capsys, tmp_path):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(
+        Config, "from_env",
+        classmethod(lambda cls: Config(
+            openrouter_api_key="k", data_dir=tmp_path,
+            sb_url="https://proj.supabase.co", sb_secret_key="sekret",
+        )),
+    )
+    seen = {}
+
+    def fake_download(sb_url, sb_secret_key, bucket, object_path, dest):
+        seen["args"] = (sb_url, sb_secret_key, bucket, object_path, dest)
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"docx-bytes")
+        return dest
+
+    monkeypatch.setattr("src.storage.download_object", fake_download)
+    rc = cli.main(["fetch-cv"])
+    assert rc == 0
+
+    sb_url, sb_key, bucket, object_path, dest = seen["args"]
+    assert sb_url == "https://proj.supabase.co" and sb_key == "sekret"
+    assert bucket == "cv-uploads" and object_path == "cv/current.docx"
+    # Same-named-inbox-file-wins precedence keys off the configured source's
+    # filename (sources.yaml: path: inputs/fels-cv.docx) -- must match exactly.
+    assert Path(dest) == tmp_path / "inbox" / "fels-cv.docx"
+    assert Path(dest).read_bytes() == b"docx-bytes"
+    assert "Fetched cv-uploads/cv/current.docx" in capsys.readouterr().out
+
+
+class _FakeStyleLLM(_NullCtx):
+    """Stand-in OpenRouterClient for style-regen: returns a canned profile."""
+
+    def __init__(self, profile: str):
+        self.profile = profile
+
+    def complete(self, *, system, user, **kw):
+        return self.profile
+
+
+def test_style_regen_command_writes_profile_from_excerpt(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    sb = _FakeSupabase({
+        "style_profile": [{"id": "default", "source_excerpt": "Some raw text.", "profile_text": None}],
+    })
+    monkeypatch.setattr(cli, "_make_supabase", lambda cfg: sb)
+    monkeypatch.setattr(cli, "_make_llm", lambda cfg, tracker=None: _FakeStyleLLM("Tone: crisp, active voice."))
+
+    rc = cli.main(["style-regen"])
+    assert rc == 0
+    assert sb.updated == [
+        ("style_profile", {"profile_text": "Tone: crisp, active voice."}, {"id": "eq.default"}),
+    ]
+    assert "Wrote style_profile.profile_text" in capsys.readouterr().out
+
+
+def test_style_regen_command_noop_when_excerpt_empty(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    sb = _FakeSupabase({"style_profile": [{"id": "default", "source_excerpt": "  "}]})
+    monkeypatch.setattr(cli, "_make_supabase", lambda cfg: sb)
+    # No _make_llm patch: _patch_common's _NullCtx has no .complete(), so this
+    # test would blow up with AttributeError if style-regen wrongly proceeded
+    # to call analyze_style() on an empty excerpt.
+
+    rc = cli.main(["style-regen"])
+    assert rc == 0
+    assert not hasattr(sb, "updated")
+    assert "nothing to do" in capsys.readouterr().out
+
+
+def test_style_regen_command_noop_when_row_missing(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    sb = _FakeSupabase({"style_profile": []})
+    monkeypatch.setattr(cli, "_make_supabase", lambda cfg: sb)
+
+    rc = cli.main(["style-regen"])
+    assert rc == 0
+    assert not hasattr(sb, "updated")
+    assert "nothing to do" in capsys.readouterr().out
