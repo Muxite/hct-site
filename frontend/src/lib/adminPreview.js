@@ -5,11 +5,13 @@
  *
  * The lab's single admin account is seeded by hand in Supabase and no
  * account exists yet in some environments (e.g. a fresh screenshot-review
- * checkout), so there's no real session to sign in with. `VITE_ADMIN_PREVIEW`
- * lets a local dev server force `isAdmin`/`editMode` true — skipping the real
- * `getSession()`/`admins`-table lookup entirely — so a screenshot agent can
- * capture the admin editing UI (the `isAdmin && editMode`-gated pencils in
- * Home.jsx/People.jsx/ProjectPage.jsx/PaperPage.jsx/SiteHome.jsx) without one.
+ * checkout), so there's no real session to sign in with. `VITE_ADMIN_PREVIEW=1`
+ * lets a local dev server force `isAdmin`/`editMode` true (and fabricate a
+ * fake `session` — see `context/AdminContext.jsx`'s `PREVIEW_SESSION`) —
+ * skipping the real `getSession()`/`admins`-table lookup entirely — so a
+ * screenshot agent can capture both the `isAdmin && editMode`-gated pencils
+ * in Home.jsx/People.jsx/ProjectPage.jsx/PaperPage.jsx/SiteHome.jsx *and*
+ * AdminPage.jsx's own signed-in view, without a real login.
  *
  * Gated on *both* the env var and `import.meta.env.DEV` (Vite's own built-in
  * flag, documented for exactly this "tree-shaken/inert in production builds"
@@ -23,5 +25,12 @@
  * piece of that decision; see adminPreview.test.js.
  */
 export function shouldForceAdminPreview({ envFlag, isDev } = {}) {
-  return Boolean(envFlag) && Boolean(isDev);
+  // An allow-list, not `Boolean(envFlag)`: every Vite env var is a string, so
+  // a `.env` line reading `VITE_ADMIN_PREVIEW=false` would set `envFlag` to
+  // the *string* "false" -- truthy under a naive `Boolean()` check, which is
+  // the opposite of what someone writing that line means. Only an explicit
+  // "1"/"true" (or an actual boolean `true`, for any non-string caller) turns
+  // this on; "false", "0", "", and anything else stays inert.
+  const flagOn = envFlag === "1" || envFlag === "true" || envFlag === true;
+  return flagOn && Boolean(isDev);
 }

@@ -25,15 +25,42 @@ const ADMIN_PREVIEW = shouldForceAdminPreview({
   isDev: import.meta.env.DEV,
 });
 
+// Fabricated stand-in for a real Supabase Auth session — gated on the exact
+// same ADMIN_PREVIEW guard as isAdmin/editMode above (not new architecture,
+// just one more thing that guard controls). Without this, AdminPage.jsx's
+// own `if (!session) return <LoginForm/>` branch would still show the login
+// form under preview mode: everywhere else reads only `isAdmin`/`editMode`
+// off this context, but AdminPage.jsx additionally checks `session` directly
+// (for `session.user?.email` and the CV-sync/style-profile accessToken), and
+// this flag exists specifically to unblock screenshotting that signed-in
+// view, not just the isAdmin && editMode pencils elsewhere.
+//
+// `access_token: null` is deliberate, not an oversight: it is not a real JWT
+// and never will be one. CvSyncSection/StyleProfileSection (AdminPage.jsx)
+// pass `session.access_token` straight through to real backend endpoints —
+// `uploadToCvUploads` (data/storage.js), the job-trigger flow
+// (`useJobRunner`/`triggerJob` in data/jobs.js), and
+// `updateStyleProfileExcerpt` (data/db.js). Under preview mode those calls
+// will fail against the real Vercel/Supabase endpoints if actually clicked —
+// there's no account behind a null token for them to authenticate as. That's
+// expected and fine for a screenshot-only pass: the page still renders
+// correctly (every control, label, and layout visible); actually invoking
+// the CV upload or style regen isn't the point of preview mode and was never
+// claimed to work here.
+const PREVIEW_SESSION = ADMIN_PREVIEW
+  ? { user: { email: "preview@admin.local" }, access_token: null }
+  : null;
+
 const AdminContext = createContext(null);
 
 export function AdminProvider({ children }) {
   // `loading` covers the initial getSession() round trip so AdminPage can
   // show a neutral "checking…" state instead of flashing "logged out" first.
   // A mock build never has a session to check, so it starts already settled.
-  // Same for an admin-preview build: isAdmin/editMode boot already forced
-  // true and no session check ever runs (see the effect below).
-  const [session, setSession] = useState(null);
+  // Same for an admin-preview build: isAdmin/editMode/session boot already
+  // forced (session to the fabricated PREVIEW_SESSION above) and no session
+  // check ever runs (see the effect below).
+  const [session, setSession] = useState(PREVIEW_SESSION);
   const [isAdmin, setIsAdmin] = useState(ADMIN_PREVIEW);
   const [loading, setLoading] = useState(!MOCK && !ADMIN_PREVIEW);
   const [editMode, setEditMode] = useState(ADMIN_PREVIEW); // never persisted — always boots false, except under the preview override
@@ -106,6 +133,14 @@ export function AdminProvider({ children }) {
 
   async function signOut() {
     if (MOCK) return;
+    // Under preview mode `session` is the fabricated PREVIEW_SESSION above,
+    // so AdminPage.jsx's "Sign out" button is reachable even though nothing
+    // here ever signed in for real. Guard it the same way MOCK is guarded
+    // just above: a real `getClient().auth.signOut()` call would be a
+    // pointless network round trip against an account that was never
+    // authenticated, and `setEditMode(false)` would otherwise silently flip
+    // the very override this page exists to demonstrate.
+    if (ADMIN_PREVIEW) return;
     await getClient().auth.signOut();
     setEditMode(false);
   }
