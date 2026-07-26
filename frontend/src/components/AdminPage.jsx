@@ -206,7 +206,8 @@ function StyleProfileSection({ accessToken }) {
   const [saveError, setSaveError] = useState("");
   const { phase, run, error, start } = useJobRunner(accessToken);
 
-  const busy = phase === "triggering" || phase === "queued" || phase === "running";
+  const saving = saveStatus === "saving";
+  const busy = saving || phase === "triggering" || phase === "queued" || phase === "running";
 
   useEffect(() => {
     let alive = true;
@@ -242,17 +243,35 @@ function StyleProfileSection({ accessToken }) {
     };
   }, [phase]);
 
+  // Returns whether the save landed, so handleRegenerate below can bail
+  // before triggering the job on a failed save (mirrors CvSyncSection's
+  // handleSync, which only calls start("cv-sync") once the upload succeeds).
   async function handleSave() {
-    if (saveStatus === "saving") return;
+    if (saveStatus === "saving") return false;
     setSaveStatus("saving");
     setSaveError("");
     try {
       await updateStyleProfileExcerpt(excerpt);
       setSaveStatus("saved");
+      return true;
     } catch (err) {
       setSaveStatus("error");
       setSaveError(String(err?.message || err));
+      return false;
     }
+  }
+
+  // Save whatever's currently in the textarea, then trigger style-regen —
+  // deliberately in this order and never in parallel, same reasoning as
+  // CvSyncSection.handleSync above: style-regen reads Supabase's
+  // style_profile.source_excerpt straight off the row, so triggering it
+  // without saving first would regenerate from whatever excerpt was last
+  // saved, silently ignoring any edit still sitting in the textarea.
+  async function handleRegenerate() {
+    if (busy || !excerpt.trim()) return;
+    const saved = await handleSave();
+    if (!saved) return;
+    await start("style-regen");
   }
 
   if (loading) {
@@ -297,14 +316,14 @@ function StyleProfileSection({ accessToken }) {
           type="button"
           className="admin-btn admin-btn--primary"
           onClick={handleSave}
-          disabled={saveStatus === "saving"}
+          disabled={busy}
         >
-          {saveStatus === "saving" ? "Saving…" : "Save exemplar"}
+          {saving ? "Saving…" : "Save exemplar"}
         </button>
         <button
           type="button"
           className="admin-btn"
-          onClick={() => start("style-regen")}
+          onClick={handleRegenerate}
           disabled={busy || !excerpt.trim()}
         >
           {busy ? "Working…" : "Regenerate style guide"}
