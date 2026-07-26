@@ -429,3 +429,71 @@ textarea.editable-text__field {
     border-color: #333;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Admin controls inside the Gallery homepage (.vlab).
+
+   Everything above gates its dark styling on `@media (prefers-color-scheme:
+   dark)` — the OS preference. That's right for /admin and for Classic, which
+   both sit in the shared chrome and follow styles.css's own
+   prefers-color-scheme block. It is *wrong* inside .vlab: the Gallery
+   homepage's light/dark is driven by the in-page switcher's
+   [data-variant]/[data-mode] attributes (variants.css), which have nothing to
+   do with the OS setting. Console is always dark (`data-mode="dark"`) and
+   Journal always light, whatever the OS says — so an admin on Console with a
+   light-mode OS got `.admin-btn`'s light #fafafa background under `color:
+   inherit`, i.e. Console's pale --v-ink text on a pale button: invisible.
+   Journal on a dark-mode OS produced the mirror image.
+
+   The fix binds these controls to the variant tokens (--v-surface/--v-ink/
+   --v-line) rather than restating hex pairs per [data-mode]. Those tokens are
+   already re-bound per variant *and* per mode, so this is correct for all
+   four looks in both modes by construction — and a fifth look would inherit
+   it for free instead of needing another hand-maintained hex block. These
+   selectors are one class more specific than everything above and come last,
+   so they win over the OS media queries in both directions.
+   --------------------------------------------------------------------------- */
+.vlab .admin-btn {
+  background: var(--v-surface);
+  border-color: var(--v-line);
+  color: var(--v-ink);
+}
+
+.vlab .admin-btn:disabled {
+  color: var(--v-faint);
+}
+
+/* The primary action keeps its own solid blue/white pair — legible against
+   every theme's surface without needing to track the tokens. */
+
+.vlab .admin-person-form input,
+.vlab .admin-person-form select,
+.vlab .admin-person-form textarea,
+.vlab .editable-text__field {
+  background: var(--v-bg);
+  border-color: var(--v-line);
+  color: var(--v-ink);
+}
+
+.vlab .admin-caption,
+.vlab .editable-image__placeholder,
+.vlab .editable-image__filename {
+  color: var(--v-muted);
+}
+
+.vlab .admin-add-person {
+  border-color: var(--v-line);
+}
+
+/* Errors are the one thing with no matching token (--v-accent is Journal's
+   scholarly red and Console's amber — not an error signal), so these do key
+   off [data-mode] directly, the same attribute variants.css switches on. */
+.vlab[data-mode="light"] .editable-text__error,
+.vlab[data-mode="light"] .editable-image__error {
+  color: #c00;
+}
+
+.vlab[data-mode="dark"] .editable-text__error,
+.vlab[data-mode="dark"] .editable-image__error {
+  color: #ff9b9b;
+}
