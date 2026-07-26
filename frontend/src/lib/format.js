@@ -78,6 +78,25 @@ export function isImageFile(file) {
   return Boolean(file && typeof file.type === "string" && file.type.startsWith("image/"));
 }
 
+/** The MIME type a browser reports for a .docx. */
+export const DOCX_MIME =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/**
+ * True when `file` looks like the lab's CV: a Word .docx. The backend's CV
+ * parser (`backend/src/cv.py`) only reads .docx, so components/AdminPage.jsx
+ * uses this as the real check behind its `<input accept=".docx">` hint —
+ * same reason `isImageFile` exists. Name and MIME are both accepted because
+ * some pickers report an empty type for .docx; like `isImageFile` this is a
+ * cheap sniff, not a content check (the pipeline itself is the real
+ * gatekeeper — a bad file just makes the CI job fail).
+ */
+export function isDocxFile(file) {
+  if (!file) return false;
+  const name = typeof file.name === "string" ? file.name.toLowerCase() : "";
+  return name.endsWith(".docx") || file.type === DOCX_MIME;
+}
+
 /**
  * Kebab-case slug for a display name, used to build the admin CMS's photo
  * upload path (`people/<slug>.<ext>` in the site-media bucket — see

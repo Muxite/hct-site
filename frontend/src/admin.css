@@ -286,3 +286,59 @@ textarea.editable-text__field {
     border-color: #333;
   }
 }
+
+/* CV sync (AdminPage.jsx): the .docx picker plus the "Sync now" trigger and
+   its job-status line. Buttons here carry an explicit 44px min-height (the
+   phone tap-target floor) rather than widening the shared `.admin-btn`,
+   which the rest of the page already sizes to its own taste; the row wraps
+   instead of using fixed widths so it reflows at any viewport. Every class
+   added below also needs an entry in the dark-mode block at the end of this
+   file if it sets a colour — that block is a hand-maintained list, not a
+   blanket rule. */
+.admin-cv {
+  margin: 2em 0;
+  padding-top: 1.5em;
+  border-top: 1px solid #e5e5e5;
+}
+
+.admin-cv__heading {
+  margin: 0 0 0.4em;
+  font-size: 1.1em;
+}
+
+.admin-cv__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 1em;
+}
+
+.admin-cv__controls .admin-btn {
+  /* inline-flex + centring so the <label>-as-button's text sits in the
+     middle of the 44px box rather than at its top. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.admin-cv__filename {
+  margin: 0.6em 0 0;
+  font-size: 0.85em;
+  color: #666;
+}
+
+.admin-btn--disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .admin-cv {
+    border-top-color: #2a2b30;
+  }
+
+  .admin-cv__filename {
+    color: #aaa;
+  }
+}

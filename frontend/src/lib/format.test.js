@@ -8,6 +8,8 @@ import {
   formatAuthors,
   emailLabel,
   isImageFile,
+  isDocxFile,
+  DOCX_MIME,
   slugify,
   photoPath,
   projectImagePath,
@@ -125,4 +127,22 @@ test("paperImagePath uses the paper's own slug and the file's extension", () => 
 
 test("paperImagePath falls back to jpg when the file name has no extension", () => {
   assert.equal(paperImagePath("muvr-2024", { name: "" }), "papers/muvr-2024.jpg");
+});
+
+test("isDocxFile accepts the lab's CV by MIME or by extension", () => {
+  assert.equal(isDocxFile({ name: "fels-cv.docx", type: DOCX_MIME }), true);
+  // Some pickers report no type at all for a .docx.
+  assert.equal(isDocxFile({ name: "fels-cv.docx", type: "" }), true);
+  assert.equal(isDocxFile({ name: "FELS-CV.DOCX", type: "" }), true);
+  assert.equal(isDocxFile({ name: "cv", type: DOCX_MIME }), true);
+});
+
+test("isDocxFile rejects anything else that slipped past accept=\".docx\"", () => {
+  assert.equal(isDocxFile({ name: "cv.doc", type: "application/msword" }), false);
+  assert.equal(isDocxFile({ name: "cv.pdf", type: "application/pdf" }), false);
+  assert.equal(isDocxFile({ name: "photo.jpg", type: "image/jpeg" }), false);
+  assert.equal(isDocxFile({ name: "docx.pdf", type: "application/pdf" }), false);
+  assert.equal(isDocxFile(null), false);
+  assert.equal(isDocxFile(undefined), false);
+  assert.equal(isDocxFile({}), false);
 });
