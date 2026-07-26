@@ -227,6 +227,10 @@ create index if not exists paper_samples_position_idx on public.paper_samples (p
 alter table public.paper_samples enable row level security;
 drop policy if exists "public read" on public.paper_samples;
 create policy "public read" on public.paper_samples for select to anon, authenticated using (true);
+-- Created after the single sweeping `revoke all` above, so a fresh-database
+-- run needs its own revoke here too, or anon/authenticated keep Postgres's
+-- default table privileges (including TRUNCATE, which RLS does not police).
+revoke all on public.paper_samples from anon, authenticated;
 grant select on public.paper_samples to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -276,6 +280,8 @@ drop policy if exists "public insert" on public.feedback;
 create policy "public insert" on public.feedback
   for insert to anon, authenticated with check (true);
 -- Intentionally no `for select` policy and no `grant select`.
+-- Same fresh-database caveat as paper_samples above: revoke defaults first.
+revoke all on public.feedback from anon, authenticated;
 grant insert on public.feedback to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -301,6 +307,9 @@ alter table public.admins enable row level security;
 drop policy if exists "admin self read" on public.admins;
 create policy "admin self read" on public.admins for select to authenticated
   using (user_id = (select auth.uid()));
+-- Same fresh-database caveat as paper_samples above: revoke defaults first.
+-- This one matters most -- TRUNCATE on `admins` would empty the allowlist.
+revoke all on public.admins from anon, authenticated;
 grant select on public.admins to authenticated;
 
 -- style_profile: the admin's writing-voice exemplar (source_excerpt, raw text
@@ -338,6 +347,8 @@ create policy "admin read/write style_profile" on public.style_profile
   for all to authenticated
   using (exists (select 1 from public.admins where user_id = (select auth.uid())))
   with check (exists (select 1 from public.admins where user_id = (select auth.uid())));
+-- Same fresh-database caveat as paper_samples above: revoke defaults first.
+revoke all on public.style_profile from anon, authenticated;
 grant select, insert, update, delete on public.style_profile to authenticated;
 
 -- publications enrichment columns: scraper/API-sourced (OpenAlex), nullable,
