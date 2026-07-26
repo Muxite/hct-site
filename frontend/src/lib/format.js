@@ -64,3 +64,16 @@ export function assetUrl(path) {
   const p = String(path || "");
   return p.startsWith("./") ? p.slice(1) : p;
 }
+
+/**
+ * True when `file` looks like an image based on its browser-reported MIME
+ * type. Used by components/EditableImage.jsx as the actual enforcement
+ * behind its `<input accept="image/*">` — that attribute is a UI hint only
+ * and trivially bypassed (e.g. an OS "All files" picker option). This is
+ * deliberately just a MIME sniff-check, not a file-size limit or a
+ * magic-byte/content sniff — no size policy is specified anywhere in this
+ * codebase, so none is invented here.
+ */
+export function isImageFile(file) {
+  return Boolean(file && typeof file.type === "string" && file.type.startsWith("image/"));
+}

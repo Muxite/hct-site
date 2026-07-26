@@ -7,6 +7,7 @@ import {
   typeLabel,
   formatAuthors,
   emailLabel,
+  isImageFile,
 } from "./format.js";
 
 test("groupByYear sorts years newest first", () => {
@@ -56,4 +57,22 @@ test("formatAuthors joins with semicolons", () => {
 
 test("emailLabel obfuscates the @", () => {
   assert.equal(emailLabel("a@b.com"), "a [at] b.com");
+});
+
+test("isImageFile accepts a real image file (EditableImage.jsx's happy path)", () => {
+  assert.equal(isImageFile({ name: "photo.jpg", type: "image/jpeg" }), true);
+  assert.equal(isImageFile({ name: "photo.png", type: "image/png" }), true);
+  assert.equal(isImageFile({ name: "photo.webp", type: "image/webp" }), true);
+});
+
+test("isImageFile rejects a non-image file even if it slipped past accept=\"image/*\"", () => {
+  assert.equal(isImageFile({ name: "cv.docx", type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), false);
+  assert.equal(isImageFile({ name: "notes.txt", type: "text/plain" }), false);
+});
+
+test("isImageFile rejects missing/malformed input without throwing", () => {
+  assert.equal(isImageFile(null), false);
+  assert.equal(isImageFile(undefined), false);
+  assert.equal(isImageFile({}), false);
+  assert.equal(isImageFile({ name: "mystery", type: "" }), false);
 });

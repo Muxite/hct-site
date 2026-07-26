@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { assetUrl } from "../lib/format.js";
+import { assetUrl, isImageFile } from "../lib/format.js";
 import "../admin.css";
 
 /**
@@ -15,7 +15,9 @@ import "../admin.css";
  * resulting path/URL is the caller's job, not this component's; it has no
  * network calls of its own. Matches Feedback.jsx's submit flow: both
  * buttons disable while saving, a failure shows an inline error and leaves
- * the editor open.
+ * the editor open. A picked file is also rejected client-side (same inline
+ * error) unless its `type` starts with "image/" — `accept="image/*"` on the
+ * `<input>` is a UI hint only and trivially bypassed.
  *
  * Read mode renders `value` through `assetUrl()` (same normalization
  * People.jsx/ProjectPage.jsx use for DB-stored asset paths) with the same
@@ -47,6 +49,31 @@ export default function EditableImage({ value, onSave, editable = false, alt = "
   function resetPicker() {
     setFile(null);
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  // `accept="image/*"` on the <input> below is a UI hint only (trivially
+  // bypassed via an OS "All files" picker option) — `isImageFile()` is the
+  // actual enforcement. Deliberately just a MIME sniff-check, not a size
+  // cap: a size limit would be an invented business rule (no spec for one),
+  // but "the file is actually an image" is this component's own contract,
+  // regardless of size. Reuses the existing error-state UI (`status`/
+  // `errorMsg`) rather than adding a second error affordance.
+  function handleFileChange(e) {
+    const picked = e.target.files?.[0] || null;
+    if (!picked) {
+      setFile(null);
+      return;
+    }
+    if (!isImageFile(picked)) {
+      setFile(null);
+      setStatus("error");
+      setErrorMsg(`"${picked.name}" doesn't look like an image (${picked.type || "unknown file type"})`);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+    setStatus("idle");
+    setErrorMsg("");
+    setFile(picked);
   }
 
   function cancel() {
@@ -113,7 +140,7 @@ export default function EditableImage({ value, onSave, editable = false, alt = "
           accept="image/*"
           className="sr-only"
           disabled={saving}
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          onChange={handleFileChange}
         />
       </label>
       {file && <span className="editable-image__filename">{file.name}</span>}
