@@ -9,6 +9,8 @@ import {
   emailLabel,
   isImageFile,
   slugify,
+  photoPath,
+  projectImagePath,
 } from "./format.js";
 
 test("groupByYear sorts years newest first", () => {
@@ -95,4 +97,22 @@ test("slugify returns an empty string for missing/empty input without throwing",
   assert.equal(slugify(""), "");
   assert.equal(slugify(null), "");
   assert.equal(slugify(undefined), "");
+});
+
+// --- photoPath (People.jsx's + SiteHome.jsx's shared photo-upload path) ------
+test("photoPath slugifies the name and keeps the file's extension", () => {
+  assert.equal(photoPath("Sidney Fels", { name: "headshot.PNG" }), "people/sidney-fels.png");
+});
+
+test("photoPath falls back to jpg when the file name has no extension", () => {
+  assert.equal(photoPath("Jane Doe", { name: "" }), "people/jane-doe.jpg");
+});
+
+// --- projectImagePath (SiteHome.jsx's project hero-image upload path) -------
+test("projectImagePath uses the project's own slug and the file's extension", () => {
+  assert.equal(projectImagePath("muvr", { name: "hero.jpeg" }), "projects/muvr.jpeg");
+});
+
+test("projectImagePath falls back to jpg when the file name has no extension", () => {
+  assert.equal(projectImagePath("muvr", { name: "" }), "projects/muvr.jpg");
 });

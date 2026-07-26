@@ -13,6 +13,7 @@ import {
   updatePerson,
   personProjectSlugs,
   deletePerson,
+  updateProject,
 } from "./db.js";
 
 function samplesClient(result) {
@@ -285,6 +286,25 @@ test("updatePerson throws on a Supabase error", async () => {
   const error = { message: "not authorized" };
   const { client } = writeSelectClient({ data: null, error });
   await assert.rejects(updatePerson("Jane Doe", { role: "x" }, client), error);
+});
+
+// --- updateProject (Gallery's project-hero-image CRUD) ------------------------
+test("updateProject updates by slug and returns the selected result", async () => {
+  const row = { slug: "muvr", title: "MUVR", hero_image: "https://x/hero.jpg" };
+  const { client, calls } = writeSelectClient({ data: row, error: null });
+  const result = await updateProject("muvr", { hero_image: "https://x/hero.jpg" }, client);
+  assert.deepEqual(result, row);
+  assert.deepEqual(calls[0], ["update", { hero_image: "https://x/hero.jpg" }]);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "eq"),
+    ["eq", "slug", "muvr"],
+  );
+});
+
+test("updateProject throws on a Supabase error", async () => {
+  const error = { message: "not authorized" };
+  const { client } = writeSelectClient({ data: null, error });
+  await assert.rejects(updateProject("muvr", { hero_image: "x" }, client), error);
 });
 
 // --- personProjectSlugs / deletePerson (delete-guard) -------------------------

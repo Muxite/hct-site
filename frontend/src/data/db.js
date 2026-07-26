@@ -278,6 +278,26 @@ export async function updatePerson(name, fields, client = getClient()) {
   return data;
 }
 
+/**
+ * Update an existing project's editable fields, keyed by its (stable) slug.
+ * Mirrors `updatePerson` above. `db/schema.sql`'s `research_admin_guard`
+ * trigger only lets an authenticated (non-service-role) update touch
+ * `summary`/`hero_image`/`tagline` — the same three columns
+ * `backend/src/sync_content.py`'s `_RESEARCH_FILL_FIELDS` only *fills in*
+ * when still null, so an admin edit made here survives a routine
+ * `hct-manager sync-content` run rather than being overwritten by it.
+ */
+export async function updateProject(slug, fields, client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.research)
+    .update(fields)
+    .eq("slug", slug)
+    .select(PROJECT_GRID_COLS)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 /** Project slugs a person is currently linked to, via project_people rows. */
 export async function personProjectSlugs(name, client = getClient()) {
   const { data, error } = await client

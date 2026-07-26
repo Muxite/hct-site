@@ -291,6 +291,16 @@
 .vlab-people--alumni .vlab-person { padding: 10px; }
 .vlab-people--alumni .vlab-person__photo { width: 44px; height: 44px; }
 
+/* Admin edit mode (SiteHome.jsx's PersonCard): EditableImage.jsx renders its
+   own <span class="editable-image">/<img class="editable-image__img">
+   wrapper rather than the plain <img class="vlab-person__photo"> read mode
+   uses, so the round-avatar sizing is extended to it here by descendant
+   selector instead of duplicating it a second time inside EditableImage.jsx
+   itself (mirrors styles.css's ".person-tile .photo img" convention for the
+   same problem in the Classic look). */
+.vlab-person .editable-image { display: flex; align-self: flex-start; }
+.vlab-person .editable-image__img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--v-line); }
+
 /* --- projects ------------------------------------------------------------- */
 .vlab-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 22px; margin-top: 24px; }
 .vlab-project {
@@ -305,6 +315,18 @@
 .vlab-project__title { font-family: var(--v-font-display); font-size: 1.2rem; font-weight: 600; margin: 0; }
 .vlab-project__blurb { font-size: 14px; color: var(--v-muted); margin: 0; line-height: 1.5; flex: 1; }
 .vlab-project__go { font-size: 13px; font-weight: 600; color: var(--v-accent); }
+
+/* Admin edit mode (SiteHome.jsx's ProjectCard): the read-mode crop box
+   (fixed 16/9 + overflow:hidden) has no room for EditableImage.jsx's own
+   Choose-file/Save/Cancel controls — overflow:hidden would just clip them
+   out of reach — so the editing variant drops the crop and stacks the
+   (still object-fit:cover, just height-capped instead of ratio-locked)
+   image above its own controls instead, same non-clipping convention
+   People.jsx's plain ".photo" wrapper already relies on for its own
+   EditableImage. Read mode (no modifier class) is untouched. */
+.vlab-project__img--editing { aspect-ratio: auto; overflow: visible; padding: 10px; }
+.vlab-project__img--editing .editable-image { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; }
+.vlab-project__img--editing .editable-image__img { width: 100%; height: 180px; object-fit: cover; border-radius: 4px; }
 
 /* --- footer --------------------------------------------------------------- */
 .vlab-foot {

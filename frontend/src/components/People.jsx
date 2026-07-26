@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { splitByKind, emailLabel, assetUrl, slugify, isImageFile } from "../lib/format.js";
+import { splitByKind, emailLabel, assetUrl, isImageFile, photoPath } from "../lib/format.js";
 import { useAdmin } from "../context/AdminContext.jsx";
 import { insertPerson, updatePerson, deletePerson } from "../data/db.js";
 import { uploadToSiteMedia } from "../data/storage.js";
@@ -8,11 +8,9 @@ import "../admin.css";
 
 const PHOTO_FALLBACK = "/Human Communication Technologies Lab_files/person.png";
 
-/** `people/<slug>.<ext>` — the site-media path convention (db/schema.sql). */
-function photoPath(name, file) {
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  return `people/${slugify(name)}.${ext}`;
-}
+// `photoPath` (people/<slug>.<ext>) now lives in lib/format.js — shared with
+// components/SiteHome.jsx's own roster CRUD (Gallery's separate render path,
+// same underlying people table) so both agree on the upload path convention.
 
 // Lab roster, original layout: current members as round-photo tiles, alumni
 // grouped beneath under a "year"-style heading. When `isAdmin && editMode`

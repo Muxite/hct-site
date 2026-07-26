@@ -95,3 +95,26 @@ export function slugify(text) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
+
+/**
+ * `people/<slug>.<ext>` — the site-media path convention (db/schema.sql) for
+ * a person's photo upload. Shared by components/People.jsx (the Classic
+ * roster CRUD) and components/SiteHome.jsx (the Signal/Console/Journal
+ * "Gallery" roster) so the two independent admin-CRUD surfaces agree on
+ * where a given person's photo lives rather than each deriving its own path.
+ */
+export function photoPath(name, file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  return `people/${slugify(name)}.${ext}`;
+}
+
+/**
+ * `projects/<slug>.<ext>` — the site-media path convention (db/schema.sql)
+ * for a project's hero image upload. `slug` is `research.slug`, already a
+ * stable dedupe key (see backend's `project_slug_for`), so — unlike
+ * `photoPath` — this doesn't need to slugify anything itself.
+ */
+export function projectImagePath(slug, file) {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  return `projects/${slug}.${ext}`;
+}

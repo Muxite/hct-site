@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../variants.css";
 import {
   getPublicationsPage,
@@ -6,7 +6,13 @@ import {
   getPeople,
   getProjects,
   getSiteContent,
+  updateSiteContent,
+  insertPerson,
+  updatePerson,
+  deletePerson,
+  updateProject,
 } from "../data/db.js";
+import { uploadToSiteMedia } from "../data/storage.js";
 import {
   THEMES,
   DEFAULT_THEME,
@@ -20,12 +26,16 @@ import {
   PEOPLE_SECTION_ID,
 } from "../lib/variants.js";
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
-import { splitByKind, emailLabel, assetUrl } from "../lib/format.js";
+import { splitByKind, emailLabel, assetUrl, isImageFile, photoPath, projectImagePath } from "../lib/format.js";
+import { useAdmin } from "../context/AdminContext.jsx";
 import CommandPalette from "./CommandPalette.jsx";
 import Header from "./Header.jsx";
 import Home from "./Home.jsx";
 import Prose from "./Prose.jsx";
+import EditableText from "./EditableText.jsx";
+import EditableImage from "./EditableImage.jsx";
 import { splitSections } from "../lib/sections.js";
+import "../admin.css";
 
 const THEME_KEY = "hct-variant";
 const MODE_KEY = "hct-variant-mode";
@@ -145,7 +155,7 @@ export default function SiteHome({ meta = {} }) {
         <div className="state">Loading the lab record…</div>
       ) : (
         <div className="vlab" data-variant={variant} data-mode={mode}>
-          <Gallery data={data} />
+          <Gallery data={data} onDataChange={setData} />
         </div>
       )}
     </div>
@@ -199,16 +209,30 @@ const VLAB_PROSE_TITLES = {
   contact: "Contact",
 };
 
-// One themed prose section. Renders nothing when the key is missing from
-// site_content, so a partial database degrades quietly instead of showing an
-// empty heading.
-function VlabProse({ content, sectionKey, title }) {
+// One themed prose section — the same site_content row + the same
+// EditableText/updateSiteContent wiring Home.jsx's own `proseSection` uses
+// (see saveContent in Gallery below), just rendered inside vlab's own
+// heading/section markup. Renders nothing when the key is missing from
+// site_content *and* no admin is editing, so a partial database degrades
+// quietly instead of showing an empty heading; an admin in edit mode instead
+// gets the heading plus an empty EditableText to add the section's first text
+// (mirrors Home.jsx's Task 7 addition — same behavior, same site_content
+// key, different theme's markup).
+function VlabProse({ content, sectionKey, title, editable = false, onSave }) {
   const value = content?.[sectionKey];
-  if (!value || !value.text) return null;
+  const text = value?.text || "";
+  if (!text && !editable) return null;
   return (
     <section className="vlab-section" id={`vlab-${sectionKey}`}>
       <h2 className="vlab-h2">{title || VLAB_PROSE_TITLES[sectionKey]}</h2>
-      <Prose text={value.text} />
+      <EditableText
+        value={text}
+        editable={editable}
+        multiline
+        placeholder="Add text for this section…"
+        render={(t) => (t ? <Prose text={t} /> : null)}
+        onSave={onSave}
+      />
     </section>
   );
 }
@@ -220,15 +244,19 @@ function VlabProse({ content, sectionKey, title }) {
 // sub-headings, `sections` comes back empty and this falls through to the same
 // flat prose Classic shows — completeness is the requirement, the accordion is
 // polish.
-function VlabOpportunities({ content }) {
-  const value = content?.opportunities;
-  if (!value || !value.text) return null;
-  const { introText, sections } = splitSections(value.text);
-  if (!sections.length) return <VlabProse content={content} sectionKey="opportunities" title="Opportunities" />;
-
+//
+// Editing: same site_content key ("opportunities") and the same raw-markdown
+// round trip Home.jsx's proseSection uses — EditableText's read mode renders
+// the accordion (via `renderBody` below), its edit mode swaps to a plain
+// textarea over the *whole* raw text (sub-headings included), same as Home.jsx.
+// Saving re-parses the new text on the next render, so adding/renaming a
+// "## Heading" line immediately changes the accordion's own sections.
+function renderOpportunitiesBody(text) {
+  if (!text) return null;
+  const { introText, sections } = splitSections(text);
+  if (!sections.length) return <Prose text={text} />;
   return (
-    <section className="vlab-section" id="vlab-opportunities">
-      <h2 className="vlab-h2">Opportunities</h2>
+    <>
       {introText && <Prose text={introText} />}
       <div className="vlab-acc">
         {sections.map((s, i) => (
@@ -243,14 +271,64 @@ function VlabOpportunities({ content }) {
           </details>
         ))}
       </div>
+    </>
+  );
+}
+
+function VlabOpportunities({ content, editable = false, onSave }) {
+  const value = content?.opportunities;
+  const text = value?.text || "";
+  if (!text && !editable) return null;
+
+  return (
+    <section className="vlab-section" id="vlab-opportunities">
+      <h2 className="vlab-h2">Opportunities</h2>
+      <EditableText
+        value={text}
+        editable={editable}
+        multiline
+        placeholder="Add text for this section…"
+        render={renderOpportunitiesBody}
+        onSave={onSave}
+      />
     </section>
   );
 }
 
 // --- the themed homepage ----------------------------------------------------
-function Gallery({ data }) {
+function Gallery({ data, onDataChange }) {
   const { publications, pubTotal, timeline, people, projects, content } = data;
   const meta = content.site_meta || {};
+  const { isAdmin, editMode } = useAdmin();
+  const editable = isAdmin && editMode;
+
+  // Persists one site_content row, then folds the same value into `data` (owned
+  // by SiteHome, passed down as `onDataChange`) so the read view reflects it
+  // without a full refetch — same shape as Home.jsx's own `saveContent`, just
+  // updating the parent's `data.content` instead of a local one (Gallery
+  // doesn't own its data the way Home.jsx does; SiteHome fetches it once and
+  // hands it down to whichever look is active).
+  const saveContent = useCallback(
+    async (key, nextText) => {
+      const fallbackTitle = key === "opportunities" ? "Opportunities" : VLAB_PROSE_TITLES[key];
+      const nextValue = { ...(content[key] || { title: fallbackTitle }), text: nextText };
+      await updateSiteContent(key, nextValue);
+      onDataChange((d) => ({ ...d, content: { ...d.content, [key]: nextValue } }));
+    },
+    [content, onDataChange],
+  );
+
+  // Same fold-back shape for the people/projects tables — Roster/ProjectGrid
+  // do the actual insert/update/delete (reusing db.js's People-CRUD calls),
+  // then report the resulting list back up here.
+  const updatePeopleList = useCallback(
+    (updater) => onDataChange((d) => ({ ...d, people: updater(d.people) })),
+    [onDataChange],
+  );
+  const updateProjectsList = useCallback(
+    (updater) => onDataChange((d) => ({ ...d, projects: updater(d.projects) })),
+    [onDataChange],
+  );
 
   const [query, setQuery] = useState("");
   const [year, setYear] = useState(null);
@@ -308,16 +386,21 @@ function Gallery({ data }) {
   const prose = useMemo(
     () => (
       <>
-        <VlabProse content={content} sectionKey="vision" />
-        <VlabProse content={content} sectionKey="innovation" />
-        <VlabOpportunities content={content} />
-        <VlabProse content={content} sectionKey="sponsors" />
-        <VlabProse content={content} sectionKey="edi" />
-        <VlabProse content={content} sectionKey="land_acknowledgment" />
-        <VlabProse content={content} sectionKey="contact" />
+        <VlabProse content={content} sectionKey="vision" editable={editable} onSave={(t) => saveContent("vision", t)} />
+        <VlabProse content={content} sectionKey="innovation" editable={editable} onSave={(t) => saveContent("innovation", t)} />
+        <VlabOpportunities content={content} editable={editable} onSave={(t) => saveContent("opportunities", t)} />
+        <VlabProse content={content} sectionKey="sponsors" editable={editable} onSave={(t) => saveContent("sponsors", t)} />
+        <VlabProse content={content} sectionKey="edi" editable={editable} onSave={(t) => saveContent("edi", t)} />
+        <VlabProse content={content} sectionKey="land_acknowledgment" editable={editable} onSave={(t) => saveContent("land_acknowledgment", t)} />
+        <VlabProse content={content} sectionKey="contact" editable={editable} onSave={(t) => saveContent("contact", t)} />
       </>
     ),
-    [content],
+    // `saveContent`'s own identity only changes when `content`/`onDataChange`
+    // do (see its useCallback above) — not on every keystroke in the search
+    // box — so this still only re-parses the markdown when the underlying
+    // content or the admin's edit-mode actually changes, matching the
+    // original comment's intent.
+    [content, editable, saveContent],
   );
 
   const pickYear = (y) => {
@@ -463,13 +546,13 @@ function Gallery({ data }) {
       {/* PEOPLE */}
       <section className="vlab-section" id={PEOPLE_SECTION_ID}>
         <h2 className="vlab-h2">People</h2>
-        <Roster people={people} />
+        <Roster people={people} onPeopleChange={updatePeopleList} />
       </section>
 
       {/* PROJECTS — only the current ones; past projects are one click away */}
       <section className="vlab-section" id="vlab-projects">
         <h2 className="vlab-h2">Projects</h2>
-        <ProjectGrid projects={featuredProjects} />
+        <ProjectGrid projects={featuredProjects} onProjectsChange={updateProjectsList} />
         {archivedCount > 0 && (
           <a className="vlab-more" href="#/projects">
             See all {projects.length} projects — including {archivedCount} past projects →
@@ -532,86 +615,482 @@ function PubRow({ pub }) {
   );
 }
 
-function Roster({ people }) {
+// Roster (+ PersonCard/AddPersonCard below) is Gallery's own equivalent of
+// People.jsx — same roster table, same insertPerson/updatePerson/deletePerson/
+// uploadToSiteMedia calls, same photoPath convention, even the same
+// role/email/bio/kind field set and people.kind sync caveat — but its own
+// vlab-* card markup, so wiring People.jsx in wholesale here would mean two
+// visually incompatible tile designs sitting side by side inside one themed
+// page (see task-8-report.md for why this shape was chosen over rendering
+// <People> directly).
+function Roster({ people, onPeopleChange }) {
+  const { isAdmin, editMode } = useAdmin();
+  const editable = isAdmin && editMode;
   const [current, alumni] = splitByKind(people, "alumni");
+
+  function handleSaved(next) {
+    onPeopleChange((prev) => prev.map((p) => (p.name === next.name ? { ...p, ...next } : p)));
+  }
+  function handleDeleted(name) {
+    onPeopleChange((prev) => prev.filter((p) => p.name !== name));
+  }
+  async function handleAdd(fields, file) {
+    const photo = file ? await uploadToSiteMedia(file, photoPath(fields.name, file)) : null;
+    const nextSortOrder = people.reduce((max, p) => Math.max(max, p.sort_order || 0), 0) + 1;
+    const payload = { ...fields, photo, sort_order: nextSortOrder };
+    const created = await insertPerson(payload);
+    onPeopleChange((prev) => [...prev, created || { ...payload, bio: null }]);
+  }
+
   return (
     <>
       <div className="vlab-people">
-        {current.map((p) => <PersonCard key={p.name} person={p} />)}
+        {current.map((p) => (
+          <PersonCard key={p.name} person={p} editable={editable} onSaved={handleSaved} onDeleted={handleDeleted} />
+        ))}
       </div>
       {alumni.length > 0 && (
         <>
           <h3 className="vlab-sub">Alumni</h3>
           <div className="vlab-people vlab-people--alumni">
-            {alumni.map((p) => <PersonCard key={p.name} person={p} />)}
+            {alumni.map((p) => (
+              <PersonCard key={p.name} person={p} editable={editable} onSaved={handleSaved} onDeleted={handleDeleted} />
+            ))}
           </div>
         </>
       )}
+      {editable && <AddPersonCard onAdd={handleAdd} />}
     </>
   );
 }
 
-function PersonCard({ person }) {
+function toPersonDraft(person) {
+  return {
+    role: person.role || "",
+    email: person.email || "",
+    bio: person.bio || "",
+    kind: person.kind || "current",
+  };
+}
+
+function PersonCard({ person, editable = false, onSaved, onDeleted }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => toPersonDraft(person));
+  const [status, setStatus] = useState("idle"); // idle | saving | error
+  const [errorMsg, setErrorMsg] = useState("");
+
   const photo = person.photo ? assetUrl(person.photo) : PHOTO_FALLBACK;
+
+  function startEdit() {
+    setDraft(toPersonDraft(person));
+    setStatus("idle");
+    setErrorMsg("");
+    setEditing(true);
+  }
+
+  function cancel() {
+    if (status === "saving") return;
+    setEditing(false);
+  }
+
+  async function handleSave(e) {
+    e.preventDefault();
+    if (status === "saving") return;
+    setStatus("saving");
+    try {
+      const fields = {
+        role: draft.role.trim() || null,
+        email: draft.email.trim() || null,
+        bio: draft.bio.trim() || null,
+        kind: draft.kind,
+      };
+      const saved = await updatePerson(person.name, fields);
+      onSaved(saved || { ...person, ...fields });
+      setStatus("idle");
+      setEditing(false);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(String(err?.message || err));
+    }
+  }
+
+  async function handleDelete() {
+    if (status === "saving") return;
+    if (!window.confirm(`Delete ${person.name}? This can't be undone.`)) return;
+    setStatus("saving");
+    setErrorMsg("");
+    try {
+      await deletePerson(person.name);
+      onDeleted(person.name);
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(String(err?.message || err));
+    }
+  }
+
+  async function handlePhotoSave(file) {
+    const url = await uploadToSiteMedia(file, photoPath(person.name, file));
+    const saved = await updatePerson(person.name, { photo: url });
+    onSaved(saved || { ...person, photo: url });
+  }
+
   return (
     <div className="vlab-person">
-      <img
-        className="vlab-person__photo"
-        alt={person.name}
-        src={photo}
-        loading="lazy"
-        onError={(e) => {
-          e.currentTarget.onerror = null;
-          e.currentTarget.src = PHOTO_FALLBACK;
-        }}
-      />
+      {editable ? (
+        <EditableImage
+          value={person.photo}
+          onSave={handlePhotoSave}
+          editable
+          alt={person.name}
+          fallback={PHOTO_FALLBACK}
+        />
+      ) : (
+        <img
+          className="vlab-person__photo"
+          alt={person.name}
+          src={photo}
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.onerror = null;
+            e.currentTarget.src = PHOTO_FALLBACK;
+          }}
+        />
+      )}
       <div className="vlab-person__info">
+        {/* `name` is immutable here too — see People.jsx/db.js's
+            people_name_key comment; there is deliberately no name field in
+            this edit form. */}
         <strong className="vlab-person__name">{person.name}</strong>
-        {person.role && <span className="vlab-person__role">{person.role}</span>}
-        {person.email && (
-          <a className="vlab-person__email" href={`mailto:${person.email}`}>{emailLabel(person.email)}</a>
+
+        {!editing ? (
+          <>
+            {person.role && <span className="vlab-person__role">{person.role}</span>}
+            {person.email && (
+              <a className="vlab-person__email" href={`mailto:${person.email}`}>{emailLabel(person.email)}</a>
+            )}
+            {editable && (
+              <div className="admin-person-actions">
+                <button type="button" className="admin-btn" onClick={startEdit}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="admin-btn"
+                  onClick={handleDelete}
+                  disabled={status === "saving"}
+                >
+                  {status === "saving" ? "Removing…" : "Remove"}
+                </button>
+              </div>
+            )}
+            {status === "error" && (
+              <p className="editable-text__error" role="alert">
+                {errorMsg}
+              </p>
+            )}
+          </>
+        ) : (
+          <form className="admin-person-form" onSubmit={handleSave}>
+            <label>
+              Role
+              <input
+                type="text"
+                value={draft.role}
+                onChange={(e) => setDraft((d) => ({ ...d, role: e.target.value }))}
+                disabled={status === "saving"}
+              />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={draft.email}
+                onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+                disabled={status === "saving"}
+              />
+            </label>
+            <label>
+              Bio
+              <textarea
+                rows={3}
+                value={draft.bio}
+                onChange={(e) => setDraft((d) => ({ ...d, bio: e.target.value }))}
+                disabled={status === "saving"}
+              />
+            </label>
+            <label>
+              Status
+              <select
+                value={draft.kind}
+                onChange={(e) => setDraft((d) => ({ ...d, kind: e.target.value }))}
+                disabled={status === "saving"}
+              >
+                <option value="current">Current</option>
+                <option value="alumni">Alumni</option>
+              </select>
+            </label>
+            {/* Same coordination caveat as People.jsx's PersonTile (Task 7) —
+                both edit the same `people` row, so the same sync-revert risk
+                applies here. */}
+            <p className="admin-caption">
+              Status (and any other change made here) may be reverted by the next
+              CV/people sync unless people.yaml is updated to match — coordinate
+              with whoever maintains it.
+            </p>
+            <div className="editable-text__actions">
+              <button
+                type="button"
+                className="admin-btn"
+                onClick={cancel}
+                disabled={status === "saving"}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="admin-btn admin-btn--primary"
+                disabled={status === "saving"}
+              >
+                {status === "saving" ? "Saving…" : "Save"}
+              </button>
+            </div>
+            {status === "error" && (
+              <p className="editable-text__error" role="alert">
+                Couldn't save — {errorMsg}
+              </p>
+            )}
+          </form>
         )}
       </div>
     </div>
   );
 }
 
-function ProjectGrid({ projects }) {
+const EMPTY_ADD_PERSON_FORM = { name: "", role: "", email: "", kind: "current" };
+
+// Same shape as People.jsx's AddPersonForm (name/role/email/photo/status,
+// name immutable once created), styled to sit below the vlab-people grid
+// rather than the Classic roster.
+function AddPersonCard({ onAdd }) {
+  const [fields, setFields] = useState(EMPTY_ADD_PERSON_FORM);
+  const [file, setFile] = useState(null);
+  const [status, setStatus] = useState("idle"); // idle | saving | error
+  const [errorMsg, setErrorMsg] = useState("");
+
+  function setField(key, value) {
+    setFields((f) => ({ ...f, [key]: value }));
+  }
+
+  function handleFileChange(e) {
+    const picked = e.target.files?.[0] || null;
+    if (!picked) {
+      setFile(null);
+      return;
+    }
+    if (!isImageFile(picked)) {
+      setFile(null);
+      setStatus("error");
+      setErrorMsg(`"${picked.name}" doesn't look like an image (${picked.type || "unknown file type"})`);
+      e.target.value = "";
+      return;
+    }
+    setStatus("idle");
+    setErrorMsg("");
+    setFile(picked);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const name = fields.name.trim();
+    if (!name || status === "saving") return;
+    setStatus("saving");
+    try {
+      await onAdd(
+        {
+          name,
+          role: fields.role.trim() || null,
+          email: fields.email.trim() || null,
+          kind: fields.kind,
+        },
+        file,
+      );
+      setFields(EMPTY_ADD_PERSON_FORM);
+      setFile(null);
+      setStatus("idle");
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(String(err?.message || err));
+    }
+  }
+
+  const saving = status === "saving";
+
+  return (
+    <form className="admin-person-form admin-add-person" onSubmit={handleSubmit}>
+      <h4>Add person</h4>
+      <label>
+        Name
+        <input
+          type="text"
+          value={fields.name}
+          onChange={(e) => setField("name", e.target.value)}
+          required
+          disabled={saving}
+        />
+      </label>
+      <label>
+        Role
+        <input
+          type="text"
+          value={fields.role}
+          onChange={(e) => setField("role", e.target.value)}
+          disabled={saving}
+        />
+      </label>
+      <label>
+        Email
+        <input
+          type="email"
+          value={fields.email}
+          onChange={(e) => setField("email", e.target.value)}
+          disabled={saving}
+        />
+      </label>
+      <label>
+        Photo
+        <input type="file" accept="image/*" onChange={handleFileChange} disabled={saving} />
+      </label>
+      <label>
+        Status
+        <select
+          value={fields.kind}
+          onChange={(e) => setField("kind", e.target.value)}
+          disabled={saving}
+        >
+          <option value="current">Current</option>
+          <option value="alumni">Alumni</option>
+        </select>
+      </label>
+      <p className="admin-caption">
+        Name can't be changed later — delete and re-add to fix a typo. This person
+        also only lives in Supabase, not in people.yaml, so a routine CV/people
+        sync will delete them again unless someone adds them there too.
+      </p>
+      <div className="editable-text__actions">
+        <button
+          type="submit"
+          className="admin-btn admin-btn--primary"
+          disabled={!fields.name.trim() || saving}
+        >
+          {saving ? "Adding…" : "Add person"}
+        </button>
+      </div>
+      {status === "error" && (
+        <p className="editable-text__error" role="alert">
+          Couldn't add — {errorMsg}
+        </p>
+      )}
+    </form>
+  );
+}
+
+function ProjectGrid({ projects, onProjectsChange }) {
+  const { isAdmin, editMode } = useAdmin();
+  const editable = isAdmin && editMode;
   const [current, archived] = splitByKind(projects, "archived");
+
+  function handleSaved(next) {
+    onProjectsChange((prev) => prev.map((p) => (p.slug && p.slug === next.slug ? { ...p, ...next } : p)));
+  }
+
   return (
     <div className="vlab-projects">
-      {[...current, ...archived].map((pr) => {
-        const blurb = pr.tagline || pr.description || "";
-        const image = pr.hero_image || pr.image;
-        const inner = (
-          <>
-            {image && (
-              <div className="vlab-project__img">
-                <img
-                  alt={pr.title}
-                  src={assetUrl(image)}
-                  loading="lazy"
-                  onError={(e) => {
-                    const w = e.currentTarget.closest(".vlab-project__img");
-                    if (w) w.style.display = "none";
-                  }}
-                />
-              </div>
-            )}
-            <div className="vlab-project__body">
-              <h3 className="vlab-project__title">{pr.title}</h3>
-              {blurb && <p className="vlab-project__blurb">{blurb}</p>}
-              {pr.slug && <span className="vlab-project__go">Open project →</span>}
-            </div>
-          </>
-        );
-        return pr.slug ? (
-          <a className="vlab-project" key={pr.slug} href={`#/projects/${pr.slug}`}>{inner}</a>
-        ) : (
-          <div className="vlab-project" key={pr.title}>{inner}</div>
-        );
-      })}
+      {[...current, ...archived].map((pr) => (
+        <ProjectCard key={pr.slug || pr.title} project={pr} editable={editable} onSaved={handleSaved} />
+      ))}
     </div>
+  );
+}
+
+// A project without a `slug` predates the project-page restructure (see
+// docs/PROJECTS.md) and has no stable key `updateProject`/uploadToSiteMedia's
+// path convention can target — same "identity must exist before it's
+// editable" rule as PersonCard's immutable `name`, just for a missing field
+// instead of a locked one. Such a project renders exactly as before: no edit
+// affordance, no project-page link either (nothing has changed for it).
+function ProjectCard({ project: pr, editable, onSaved }) {
+  const blurb = pr.tagline || pr.description || "";
+  const image = pr.hero_image || pr.image;
+  const canEditImage = editable && Boolean(pr.slug);
+
+  async function handleImageSave(file) {
+    if (!pr.slug) return;
+    const url = await uploadToSiteMedia(file, projectImagePath(pr.slug, file));
+    const saved = await updateProject(pr.slug, { hero_image: url });
+    onSaved(saved || { ...pr, hero_image: url });
+  }
+
+  const body = (
+    <div className="vlab-project__body">
+      <h3 className="vlab-project__title">{pr.title}</h3>
+      {blurb && <p className="vlab-project__blurb">{blurb}</p>}
+      {pr.slug &&
+        (canEditImage ? (
+          // The card itself can't be the whole-tile <a> in edit mode (see
+          // below) — this is the one remaining way to reach the project page.
+          <a className="vlab-project__go" href={`#/projects/${pr.slug}`}>Open project →</a>
+        ) : (
+          <span className="vlab-project__go">Open project →</span>
+        ))}
+    </div>
+  );
+
+  const media = (image || canEditImage) && (
+    <div className={`vlab-project__img${canEditImage ? " vlab-project__img--editing" : ""}`}>
+      {canEditImage ? (
+        <EditableImage value={image} onSave={handleImageSave} editable alt={pr.title} />
+      ) : (
+        image && (
+          <img
+            alt={pr.title}
+            src={assetUrl(image)}
+            loading="lazy"
+            onError={(e) => {
+              const w = e.currentTarget.closest(".vlab-project__img");
+              if (w) w.style.display = "none";
+            }}
+          />
+        )
+      )}
+    </div>
+  );
+
+  // Read mode (and any project missing a slug) keeps the original "the whole
+  // card is a link" design. Edit mode can't: EditableImage renders its own
+  // Choose-file/Save/Cancel <button>s, and a <button> nested inside an <a>
+  // is both invalid HTML and would hijack every click as a navigation (the
+  // click bubbles to the anchor before the button's own handler settles
+  // anything useful) — so in edit mode the tile becomes a plain <div> with
+  // the "Open project →" text above promoted to its own real link instead.
+  if (canEditImage) {
+    return (
+      <div className="vlab-project">
+        {media}
+        {body}
+      </div>
+    );
+  }
+
+  const inner = (
+    <>
+      {media}
+      {body}
+    </>
+  );
+  return pr.slug ? (
+    <a className="vlab-project" href={`#/projects/${pr.slug}`}>{inner}</a>
+  ) : (
+    <div className="vlab-project">{inner}</div>
   );
 }
 
