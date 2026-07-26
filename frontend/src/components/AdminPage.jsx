@@ -9,9 +9,18 @@ import "../admin.css";
 // /admin — login/logout + admin-status detection, plus the CV upload and its
 // "Sync now" CI trigger, and the writing-voice exemplar + style-regen trigger.
 export default function AdminPage() {
-  const { mock, loading, session, isAdmin, editMode, setEditMode, signIn, signOut } = useAdmin();
+  const { mock, adminPreview, loading, session, isAdmin, editMode, setEditMode, signIn, signOut } =
+    useAdmin();
 
-  if (mock) {
+  // `&& !adminPreview`: VITE_ADMIN_PREVIEW's whole point (lib/adminPreview.js,
+  // AdminContext.jsx's PREVIEW_SESSION) is to let a screenshot/QA pass see
+  // this page's real signed-in view under VITE_MOCK=1 — the exact combination
+  // a screenshot-only checkout runs with, since there's no live Supabase to
+  // sign in against otherwise. Checking `mock` alone here shortcircuited
+  // before `session`/`adminPreview` were ever consulted, so that combination
+  // only ever produced this "no live Supabase" message, defeating the flag.
+  // `VITE_MOCK=1` with no preview flag still hits this branch as before.
+  if (mock && !adminPreview) {
     return (
       <div className="admin-page">
         <h1>Admin</h1>
