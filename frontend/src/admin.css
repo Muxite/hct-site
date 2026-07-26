@@ -464,7 +464,19 @@ textarea.editable-text__field {
 }
 
 /* The primary action keeps its own solid blue/white pair — legible against
-   every theme's surface without needing to track the tokens. */
+   every theme's surface without needing to track the tokens. It has to be
+   restated here rather than left to `.admin-btn--primary` above: every
+   primary button also carries `.admin-btn`, and `.vlab .admin-btn` (0,2,0)
+   out-specifies the bare `.admin-btn--primary` (0,1,0), so without this rule
+   Save/Add/Sync/Regenerate would all lose their blue fill on the Gallery
+   homepage and render identically to Cancel. Same specificity as the rule
+   above but later in source order, so it wins. Keep the values in sync with
+   `.admin-btn--primary`. */
+.vlab .admin-btn--primary {
+  background: #1a56db;
+  border-color: #1a56db;
+  color: #fff;
+}
 
 .vlab .admin-person-form input,
 .vlab .admin-person-form select,
