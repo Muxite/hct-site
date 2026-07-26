@@ -44,8 +44,9 @@ export const PEOPLE_KIND_SYNC_CAVEAT =
  */
 export const ADD_PERSON_SYNC_CAVEAT =
   "Name can't be changed later — delete and re-add to fix a typo. This person " +
-  "also only lives in Supabase, not in people.yaml, so a routine CV/people " +
-  "sync will delete them again unless someone adds them there too.";
+  "also only lives in Supabase, not in people.yaml; a routine CV/people sync " +
+  "won't delete them or touch their details, but if you keep people.yaml by " +
+  "hand, add them there too so the two stay in sync.";
 
 /**
  * `draft` (the edit form's raw string fields) -> the payload `updatePerson`

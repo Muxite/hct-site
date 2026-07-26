@@ -26,6 +26,15 @@ test("PEOPLE_KIND_SYNC_CAVEAT / ADD_PERSON_SYNC_CAVEAT are the single source of 
   assert.match(ADD_PERSON_SYNC_CAVEAT, /delete and re-add/);
 });
 
+test("ADD_PERSON_SYNC_CAVEAT never claims a routine sync deletes the person", () => {
+  // `_sync_people` passes `delete_stale=False` precisely so a browser-added
+  // person survives every routine bulk resync (backend/src/sync_content.py's
+  // `_bulk_sync` docstring). The copy said the opposite for a while; this
+  // guards the correction — it must promise *no* deletion, not warn of one.
+  assert.match(ADD_PERSON_SYNC_CAVEAT, /won't delete them/);
+  assert.doesNotMatch(ADD_PERSON_SYNC_CAVEAT, /will delete/);
+});
+
 test("personFieldsFromDraft trims and null-coalesces blank fields", () => {
   const fields = personFieldsFromDraft({
     role: "  Postdoc  ",
