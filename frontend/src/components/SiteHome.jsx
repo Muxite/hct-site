@@ -7,9 +7,6 @@ import {
   getProjects,
   getSiteContent,
   updateSiteContent,
-  insertPerson,
-  updatePerson,
-  deletePerson,
   updateProject,
 } from "../data/db.js";
 import { uploadToSiteMedia } from "../data/storage.js";
@@ -24,10 +21,18 @@ import {
   pubTypes,
   buildCommandIndex,
   PEOPLE_SECTION_ID,
+  shouldReloadGalleryData,
 } from "../lib/variants.js";
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
-import { splitByKind, emailLabel, assetUrl, isImageFile, photoPath, projectImagePath } from "../lib/format.js";
+import { splitByKind, emailLabel, assetUrl, projectImagePath } from "../lib/format.js";
 import { useAdmin } from "../context/AdminContext.jsx";
+import {
+  PEOPLE_KIND_SYNC_CAVEAT,
+  ADD_PERSON_SYNC_CAVEAT,
+  addPersonWithPhoto,
+  usePersonEditor,
+  useAddPersonForm,
+} from "../hooks/usePersonEditor.js";
 import CommandPalette from "./CommandPalette.jsx";
 import Header from "./Header.jsx";
 import Home from "./Home.jsx";
@@ -60,15 +65,55 @@ export default function SiteHome({ meta = {} }) {
   const [error, setError] = useState(null);
   const [variant, setVariant] = useState(() => readStored(THEME_KEY, DEFAULT_THEME, isTheme));
   const [dark, setDark] = useState(() => readStored(MODE_KEY, "light") === "dark");
+  const { editMode } = useAdmin();
 
   const isClassic = variant === "classic";
+
+  // Classic (<Home>) writes straight to Supabase via its own db.js calls
+  // (Home.jsx/People.jsx) and always refetches fresh on mount, since it's a
+  // genuinely separate component that mounts/unmounts each time `isClassic`
+  // flips. Gallery's `data` below is different: it's fetched once and cached
+  // for the lifetime of this SiteHome instance (deliberately — see the next
+  // effect's own comment), so an edit made in Classic would otherwise stay
+  // invisible in Gallery after toggling back, until a hard reload.
+  //
+  // `reloadToken` closes that gap for the one case worth paying an extra
+  // Supabase round trip for: an admin toggling from Classic back to a
+  // redesign while actively editing (`editMode`). A plain visitor flipping
+  // looks back and forth never bumps this, so the original "fetch once,
+  // cache" behavior/cost is unchanged for everyone else. `wasClassicRef`
+  // remembers *last render's* `isClassic` so the bump only fires on the
+  // actual Classic -> redesign transition, not on every render while
+  // `editMode` happens to be true.
+  const [reloadToken, setReloadToken] = useState(0);
+  const wasClassicRef = useRef(isClassic);
+  useEffect(() => {
+    const wasClassic = wasClassicRef.current;
+    wasClassicRef.current = isClassic;
+    if (shouldReloadGalleryData({ wasClassic, isClassic, editMode })) {
+      setReloadToken((n) => n + 1);
+    }
+  }, [isClassic, editMode]);
 
   // The heavy record fetch (1000 pubs + timeline) only feeds the themed
   // redesigns — Classic renders <Home>, which does its own lighter fetch. So we
   // lazily load the gallery data the first time a redesign is selected and
-  // cache it thereafter.
+  // cache it thereafter — except `reloadToken` (see above) forces one more
+  // fetch when an editing admin returns from Classic, since they may have
+  // just edited a person/project/prose section there.
+  //
+  // `data` is deliberately *not* in the dependency array even though the
+  // body reads it: this effect must only re-run on an `isClassic`/
+  // `reloadToken` transition, never merely because `data` itself changed —
+  // and it changes on every in-place edit made *within* Gallery too (see
+  // updatePeopleList/updateProjectsList/saveContent below), each of which
+  // calls `onDataChange`/`setData`. Depending on `data` here would refetch
+  // the whole record after every single Gallery edit once `reloadToken` had
+  // ever been bumped past 0 in this session — wasteful, and a race against
+  // that same edit's own optimistic local update.
   useEffect(() => {
-    if (isClassic || data) return;
+    if (isClassic) return;
+    if (data && reloadToken === 0) return;
     let alive = true;
     Promise.all([
       getPublicationsPage({ offset: 0, limit: 1000 }),
@@ -90,7 +135,7 @@ export default function SiteHome({ meta = {} }) {
     return () => {
       alive = false;
     };
-  }, [isClassic, data]);
+  }, [isClassic, reloadToken]);
 
   useEffect(() => {
     try {
@@ -617,12 +662,12 @@ function PubRow({ pub }) {
 
 // Roster (+ PersonCard/AddPersonCard below) is Gallery's own equivalent of
 // People.jsx — same roster table, same insertPerson/updatePerson/deletePerson/
-// uploadToSiteMedia calls, same photoPath convention, even the same
-// role/email/bio/kind field set and people.kind sync caveat — but its own
-// vlab-* card markup, so wiring People.jsx in wholesale here would mean two
-// visually incompatible tile designs sitting side by side inside one themed
-// page (see task-8-report.md for why this shape was chosen over rendering
-// <People> directly).
+// uploadToSiteMedia calls, same photoPath convention, same role/email/bio/kind
+// field set and people.kind sync caveat, all shared via hooks/usePersonEditor.js
+// — but its own vlab-* card markup, so wiring People.jsx in wholesale here
+// would mean two visually incompatible tile designs sitting side by side
+// inside one themed page (see task-8-report.md for why this shape was chosen
+// over rendering <People> directly).
 function Roster({ people, onPeopleChange }) {
   const { isAdmin, editMode } = useAdmin();
   const editable = isAdmin && editMode;
@@ -635,11 +680,8 @@ function Roster({ people, onPeopleChange }) {
     onPeopleChange((prev) => prev.filter((p) => p.name !== name));
   }
   async function handleAdd(fields, file) {
-    const photo = file ? await uploadToSiteMedia(file, photoPath(fields.name, file)) : null;
-    const nextSortOrder = people.reduce((max, p) => Math.max(max, p.sort_order || 0), 0) + 1;
-    const payload = { ...fields, photo, sort_order: nextSortOrder };
-    const created = await insertPerson(payload);
-    onPeopleChange((prev) => [...prev, created || { ...payload, bio: null }]);
+    const created = await addPersonWithPhoto(fields, file, people);
+    onPeopleChange((prev) => [...prev, created]);
   }
 
   return (
@@ -664,75 +706,21 @@ function Roster({ people, onPeopleChange }) {
   );
 }
 
-function toPersonDraft(person) {
-  return {
-    role: person.role || "",
-    email: person.email || "",
-    bio: person.bio || "",
-    kind: person.kind || "current",
-  };
-}
-
 function PersonCard({ person, editable = false, onSaved, onDeleted }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => toPersonDraft(person));
-  const [status, setStatus] = useState("idle"); // idle | saving | error
-  const [errorMsg, setErrorMsg] = useState("");
+  const {
+    editing,
+    draft,
+    setDraft,
+    status,
+    errorMsg,
+    startEdit,
+    cancel,
+    handleSave,
+    handleDelete,
+    handlePhotoSave,
+  } = usePersonEditor(person, { onSaved, onDeleted });
 
   const photo = person.photo ? assetUrl(person.photo) : PHOTO_FALLBACK;
-
-  function startEdit() {
-    setDraft(toPersonDraft(person));
-    setStatus("idle");
-    setErrorMsg("");
-    setEditing(true);
-  }
-
-  function cancel() {
-    if (status === "saving") return;
-    setEditing(false);
-  }
-
-  async function handleSave(e) {
-    e.preventDefault();
-    if (status === "saving") return;
-    setStatus("saving");
-    try {
-      const fields = {
-        role: draft.role.trim() || null,
-        email: draft.email.trim() || null,
-        bio: draft.bio.trim() || null,
-        kind: draft.kind,
-      };
-      const saved = await updatePerson(person.name, fields);
-      onSaved(saved || { ...person, ...fields });
-      setStatus("idle");
-      setEditing(false);
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(String(err?.message || err));
-    }
-  }
-
-  async function handleDelete() {
-    if (status === "saving") return;
-    if (!window.confirm(`Delete ${person.name}? This can't be undone.`)) return;
-    setStatus("saving");
-    setErrorMsg("");
-    try {
-      await deletePerson(person.name);
-      onDeleted(person.name);
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(String(err?.message || err));
-    }
-  }
-
-  async function handlePhotoSave(file) {
-    const url = await uploadToSiteMedia(file, photoPath(person.name, file));
-    const saved = await updatePerson(person.name, { photo: url });
-    onSaved(saved || { ...person, photo: url });
-  }
 
   return (
     <div className="vlab-person">
@@ -831,12 +819,8 @@ function PersonCard({ person, editable = false, onSaved, onDeleted }) {
             </label>
             {/* Same coordination caveat as People.jsx's PersonTile (Task 7) —
                 both edit the same `people` row, so the same sync-revert risk
-                applies here. */}
-            <p className="admin-caption">
-              Status (and any other change made here) may be reverted by the next
-              CV/people sync unless people.yaml is updated to match — coordinate
-              with whoever maintains it.
-            </p>
+                applies here. Single-sourced in hooks/usePersonEditor.js. */}
+            <p className="admin-caption">{PEOPLE_KIND_SYNC_CAVEAT}</p>
             <div className="editable-text__actions">
               <button
                 type="button"
@@ -866,63 +850,11 @@ function PersonCard({ person, editable = false, onSaved, onDeleted }) {
   );
 }
 
-const EMPTY_ADD_PERSON_FORM = { name: "", role: "", email: "", kind: "current" };
-
 // Same shape as People.jsx's AddPersonForm (name/role/email/photo/status,
 // name immutable once created), styled to sit below the vlab-people grid
 // rather than the Classic roster.
 function AddPersonCard({ onAdd }) {
-  const [fields, setFields] = useState(EMPTY_ADD_PERSON_FORM);
-  const [file, setFile] = useState(null);
-  const [status, setStatus] = useState("idle"); // idle | saving | error
-  const [errorMsg, setErrorMsg] = useState("");
-
-  function setField(key, value) {
-    setFields((f) => ({ ...f, [key]: value }));
-  }
-
-  function handleFileChange(e) {
-    const picked = e.target.files?.[0] || null;
-    if (!picked) {
-      setFile(null);
-      return;
-    }
-    if (!isImageFile(picked)) {
-      setFile(null);
-      setStatus("error");
-      setErrorMsg(`"${picked.name}" doesn't look like an image (${picked.type || "unknown file type"})`);
-      e.target.value = "";
-      return;
-    }
-    setStatus("idle");
-    setErrorMsg("");
-    setFile(picked);
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const name = fields.name.trim();
-    if (!name || status === "saving") return;
-    setStatus("saving");
-    try {
-      await onAdd(
-        {
-          name,
-          role: fields.role.trim() || null,
-          email: fields.email.trim() || null,
-          kind: fields.kind,
-        },
-        file,
-      );
-      setFields(EMPTY_ADD_PERSON_FORM);
-      setFile(null);
-      setStatus("idle");
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(String(err?.message || err));
-    }
-  }
-
+  const { fields, setField, status, errorMsg, handleFileChange, handleSubmit } = useAddPersonForm(onAdd);
   const saving = status === "saving";
 
   return (
@@ -971,11 +903,7 @@ function AddPersonCard({ onAdd }) {
           <option value="alumni">Alumni</option>
         </select>
       </label>
-      <p className="admin-caption">
-        Name can't be changed later — delete and re-add to fix a typo. This person
-        also only lives in Supabase, not in people.yaml, so a routine CV/people
-        sync will delete them again unless someone adds them there too.
-      </p>
+      <p className="admin-caption">{ADD_PERSON_SYNC_CAVEAT}</p>
       <div className="editable-text__actions">
         <button
           type="submit"

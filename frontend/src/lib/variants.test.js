@@ -10,6 +10,7 @@ import {
   isTheme,
   themeById,
   PEOPLE_SECTION_ID,
+  shouldReloadGalleryData,
 } from "./variants.js";
 import { matchRoute } from "./router.js";
 
@@ -168,4 +169,53 @@ test("theme guards", () => {
   assert.ok(!isTheme("nope"));
   assert.equal(themeById("nope").id, "signal"); // falls back to first
   assert.equal(themeById("console").label, "Console");
+});
+
+// --- shouldReloadGalleryData (SiteHome.jsx's Classic -> redesign refetch) ---
+// Covers the exact transition logic behind the fix for: land on Signal,
+// toggle to Classic, edit something there, toggle back to Signal in the
+// same session — Gallery's cached `data` must not go stale. The effect
+// itself (useEffect/useState/useRef inside SiteHome) isn't unit-testable
+// without a component-render harness (this codebase has none — see earlier
+// tasks' reports), but the pure decision it makes each render is.
+test("shouldReloadGalleryData bumps on the actual Classic -> redesign transition while editing", () => {
+  assert.equal(
+    shouldReloadGalleryData({ wasClassic: true, isClassic: false, editMode: true }),
+    true,
+  );
+});
+
+test("shouldReloadGalleryData does nothing for a plain visitor (editMode off)", () => {
+  assert.equal(
+    shouldReloadGalleryData({ wasClassic: true, isClassic: false, editMode: false }),
+    false,
+  );
+});
+
+test("shouldReloadGalleryData does nothing while still on Classic (not a transition away yet)", () => {
+  assert.equal(
+    shouldReloadGalleryData({ wasClassic: true, isClassic: true, editMode: true }),
+    false,
+  );
+});
+
+test("shouldReloadGalleryData does nothing going *into* Classic", () => {
+  assert.equal(
+    shouldReloadGalleryData({ wasClassic: false, isClassic: true, editMode: true }),
+    false,
+  );
+});
+
+test("shouldReloadGalleryData does nothing on first mount (never was on Classic)", () => {
+  assert.equal(
+    shouldReloadGalleryData({ wasClassic: false, isClassic: false, editMode: true }),
+    false,
+  );
+});
+
+test("shouldReloadGalleryData does nothing while staying on a redesign the whole time", () => {
+  assert.equal(
+    shouldReloadGalleryData({ wasClassic: false, isClassic: false, editMode: false }),
+    false,
+  );
 });

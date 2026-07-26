@@ -1,16 +1,24 @@
 import { useEffect, useState } from "react";
-import { splitByKind, emailLabel, assetUrl, isImageFile, photoPath } from "../lib/format.js";
+import { splitByKind, emailLabel, assetUrl } from "../lib/format.js";
 import { useAdmin } from "../context/AdminContext.jsx";
-import { insertPerson, updatePerson, deletePerson } from "../data/db.js";
-import { uploadToSiteMedia } from "../data/storage.js";
+import {
+  PEOPLE_KIND_SYNC_CAVEAT,
+  ADD_PERSON_SYNC_CAVEAT,
+  addPersonWithPhoto,
+  usePersonEditor,
+  useAddPersonForm,
+} from "../hooks/usePersonEditor.js";
 import EditableImage from "./EditableImage.jsx";
 import "../admin.css";
 
 const PHOTO_FALLBACK = "/Human Communication Technologies Lab_files/person.png";
 
-// `photoPath` (people/<slug>.<ext>) now lives in lib/format.js — shared with
-// components/SiteHome.jsx's own roster CRUD (Gallery's separate render path,
-// same underlying people table) so both agree on the upload path convention.
+// The edit/delete/photo state machine, the add-form state machine, the
+// field validation, the `photoPath`/sort_order logic, and the people.kind
+// sync caveat text all now live in hooks/usePersonEditor.js — shared with
+// components/SiteHome.jsx's own roster CRUD (Gallery's separate render
+// path, same underlying people table) so neither copy can silently drift
+// from the other. This file only owns the Classic `.person-tile` markup.
 
 // Lab roster, original layout: current members as round-photo tiles, alumni
 // grouped beneath under a "year"-style heading. When `isAdmin && editMode`
@@ -39,11 +47,8 @@ export default function People({ people }) {
   }
 
   async function handleAdd(fields, file) {
-    const photo = file ? await uploadToSiteMedia(file, photoPath(fields.name, file)) : null;
-    const nextSortOrder = roster.reduce((max, p) => Math.max(max, p.sort_order || 0), 0) + 1;
-    const payload = { ...fields, photo, sort_order: nextSortOrder };
-    const created = await insertPerson(payload);
-    setRoster((prev) => [...prev, created || { ...payload, bio: null }]);
+    const created = await addPersonWithPhoto(fields, file, roster);
+    setRoster((prev) => [...prev, created]);
   }
 
   if (!current.length && !alumni.length && !editable) {
@@ -86,75 +91,21 @@ export default function People({ people }) {
   );
 }
 
-function toDraft(person) {
-  return {
-    role: person.role || "",
-    email: person.email || "",
-    bio: person.bio || "",
-    kind: person.kind || "current",
-  };
-}
-
 function PersonTile({ person, editable, onSaved, onDeleted }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => toDraft(person));
-  const [status, setStatus] = useState("idle"); // idle | saving | error
-  const [errorMsg, setErrorMsg] = useState("");
+  const {
+    editing,
+    draft,
+    setDraft,
+    status,
+    errorMsg,
+    startEdit,
+    cancel,
+    handleSave,
+    handleDelete,
+    handlePhotoSave,
+  } = usePersonEditor(person, { onSaved, onDeleted });
 
   const photo = person.photo ? assetUrl(person.photo) : PHOTO_FALLBACK;
-
-  function startEdit() {
-    setDraft(toDraft(person));
-    setStatus("idle");
-    setErrorMsg("");
-    setEditing(true);
-  }
-
-  function cancel() {
-    if (status === "saving") return; // no cancelling mid-flight, same as EditableText.jsx
-    setEditing(false);
-  }
-
-  async function handleSave(e) {
-    e.preventDefault();
-    if (status === "saving") return;
-    setStatus("saving");
-    try {
-      const fields = {
-        role: draft.role.trim() || null,
-        email: draft.email.trim() || null,
-        bio: draft.bio.trim() || null,
-        kind: draft.kind,
-      };
-      const saved = await updatePerson(person.name, fields);
-      onSaved(saved || { ...person, ...fields });
-      setStatus("idle");
-      setEditing(false);
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(String(err?.message || err));
-    }
-  }
-
-  async function handleDelete() {
-    if (status === "saving") return;
-    if (!window.confirm(`Delete ${person.name}? This can't be undone.`)) return;
-    setStatus("saving");
-    setErrorMsg("");
-    try {
-      await deletePerson(person.name);
-      onDeleted(person.name);
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(String(err?.message || err));
-    }
-  }
-
-  async function handlePhotoSave(file) {
-    const url = await uploadToSiteMedia(file, photoPath(person.name, file));
-    const saved = await updatePerson(person.name, { photo: url });
-    onSaved(saved || { ...person, photo: url });
-  }
 
   return (
     <div className="person-tile">
@@ -264,16 +215,9 @@ function PersonTile({ person, editable, onSaved, onDeleted }) {
             </label>
             {/* people.kind decision (Task 7 / plan addendum): built anyway,
                 documented here — see task-7-report.md for the full reasoning.
-                people.yaml + `hct-manager sync-content` always force-write
-                `kind` from the YAML, so a status flipped here can be reverted
-                (or, for an admin-added person entirely, deleted — see the
-                report) by the next routine sync unless people.yaml is kept
-                in sync by whoever maintains it. */}
-            <p className="admin-caption">
-              Status (and any other change made here) may be reverted by the next
-              CV/people sync unless people.yaml is updated to match — coordinate
-              with whoever maintains it.
-            </p>
+                Caveat text now lives once in hooks/usePersonEditor.js, shared
+                with SiteHome.jsx's own edit form. */}
+            <p className="admin-caption">{PEOPLE_KIND_SYNC_CAVEAT}</p>
             <div className="editable-text__actions">
               <button
                 type="button"
@@ -303,69 +247,12 @@ function PersonTile({ person, editable, onSaved, onDeleted }) {
   );
 }
 
-const EMPTY_ADD_FORM = { name: "", role: "", email: "", kind: "current" };
-
 // "Add person" inline form — name/role/email/photo/status, name set once at
 // creation (see decision #6 / people_name_key). `onAdd(fields, file)` does
 // the actual upload + insert (People.jsx) and is awaited with no optimistic
 // UI, same Save/Cancel-disable-while-saving convention as EditableText.jsx.
 function AddPersonForm({ onAdd }) {
-  const [fields, setFields] = useState(EMPTY_ADD_FORM);
-  const [file, setFile] = useState(null);
-  const [status, setStatus] = useState("idle"); // idle | saving | error
-  const [errorMsg, setErrorMsg] = useState("");
-
-  function setField(key, value) {
-    setFields((f) => ({ ...f, [key]: value }));
-  }
-
-  // `accept="image/*"` below is a UI hint only (trivially bypassed, e.g. an
-  // OS "All files" picker option) — same enforcement EditableImage.jsx uses
-  // for the same reason, reused here since this form's photo field is a
-  // plain <input type="file"> rather than an <EditableImage> (there's no
-  // existing person/value to edit yet).
-  function handleFileChange(e) {
-    const picked = e.target.files?.[0] || null;
-    if (!picked) {
-      setFile(null);
-      return;
-    }
-    if (!isImageFile(picked)) {
-      setFile(null);
-      setStatus("error");
-      setErrorMsg(`"${picked.name}" doesn't look like an image (${picked.type || "unknown file type"})`);
-      e.target.value = "";
-      return;
-    }
-    setStatus("idle");
-    setErrorMsg("");
-    setFile(picked);
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const name = fields.name.trim();
-    if (!name || status === "saving") return;
-    setStatus("saving");
-    try {
-      await onAdd(
-        {
-          name,
-          role: fields.role.trim() || null,
-          email: fields.email.trim() || null,
-          kind: fields.kind,
-        },
-        file,
-      );
-      setFields(EMPTY_ADD_FORM);
-      setFile(null);
-      setStatus("idle");
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg(String(err?.message || err));
-    }
-  }
-
+  const { fields, setField, status, errorMsg, handleFileChange, handleSubmit } = useAddPersonForm(onAdd);
   const saving = status === "saving";
 
   return (
@@ -401,6 +288,9 @@ function AddPersonForm({ onAdd }) {
       </label>
       <label>
         Photo
+        {/* `accept="image/*"` below is a UI hint only (trivially bypassed,
+            e.g. an OS "All files" picker option) — useAddPersonForm's
+            handleFileChange is the actual enforcement. */}
         <input type="file" accept="image/*" onChange={handleFileChange} disabled={saving} />
       </label>
       <label>
@@ -414,11 +304,7 @@ function AddPersonForm({ onAdd }) {
           <option value="alumni">Alumni</option>
         </select>
       </label>
-      <p className="admin-caption">
-        Name can't be changed later — delete and re-add to fix a typo. This person
-        also only lives in Supabase, not in people.yaml, so a routine CV/people
-        sync will delete them again unless someone adds them there too.
-      </p>
+      <p className="admin-caption">{ADD_PERSON_SYNC_CAVEAT}</p>
       <div className="editable-text__actions">
         <button
           type="submit"

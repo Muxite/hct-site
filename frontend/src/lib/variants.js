@@ -46,6 +46,24 @@ export function themeById(id) {
 }
 
 /**
+ * Whether SiteHome.jsx's Gallery should refetch its cached record data on
+ * this render. Classic (<Home>) always refetches fresh on its own mount, but
+ * Gallery's own record fetch is cached for the whole SiteHome instance's
+ * lifetime once loaded (see SiteHome.jsx's own comment) — so an edit made in
+ * Classic (which writes straight to Supabase via Home.jsx/People.jsx) would
+ * otherwise stay invisible in Gallery after toggling back, until a hard
+ * reload. Unconditionally refetching on every Classic -> redesign transition
+ * would cost every visitor an extra round trip just for flipping looks, so
+ * this only fires while `editMode` is on (an admin might have just edited
+ * something there) — `wasClassic` must be the *previous* render's
+ * `isClassic`, so this only reports true once per actual transition, never
+ * merely because `editMode` happens to be on already.
+ */
+export function shouldReloadGalleryData({ wasClassic, isClassic, editMode }) {
+  return Boolean(wasClassic && !isClassic && editMode);
+}
+
+/**
  * Publication cadence as a continuous per-year histogram — the gallery's
  * signature "spectrogram". Every year from the first to the last entry is
  * present (gap years get count 0) so the bars read as a single signal rather
