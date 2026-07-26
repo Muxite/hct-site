@@ -5,6 +5,7 @@
                                        people.yaml/research.yaml/site.yaml -> Supabase
     hct-manager analyze-style FILE [--save]   write/print a style profile
     hct-manager describe [--all] [--fetch] [--limit N]   write lab-voice descriptions
+    hct-manager enrich [--limit N]     fill citation_count/concepts/oa_status via OpenAlex
     hct-manager qa [--out PATH] [--no-source-check] [--strict]
                                        QA report on the live Supabase data
     hct-manager health                 check the ujin scrape service
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from src.config import Config
 from src.llm import OpenRouterClient
+from src.paper_sources import PaperSources
 from src.style import analyze_style, load_style_system_prompt, read_text_input
 from src.supabase_client import SupabaseClient
 from src.ujin_client import UjinClient
@@ -33,6 +35,10 @@ def _make_llm(cfg: Config, tracker=None) -> OpenRouterClient:
         cfg.openrouter_api_key, model=cfg.model, base_url=cfg.openrouter_base_url,
         tracker=tracker,
     )
+
+
+def _make_paper_sources(cfg: Config) -> PaperSources:
+    return PaperSources(contact_email=cfg.contact_email)
 
 
 def _finalize_metrics(cfg: Config, tracker) -> None:
@@ -214,6 +220,27 @@ def _cmd_describe(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_enrich(args: argparse.Namespace) -> int:
+    """Fill citation_count/concepts/oa_status onto publications via OpenAlex.
+
+    Free and keyless (unlike ``describe``/``summarize``, no LLM call and no
+    per-run token budget), so this runs over every publication, not just a
+    project-linked subset. See ``src/enrich.py`` for the fill-if-empty
+    write discipline.
+    """
+    from src import enrich
+
+    cfg = Config.from_env()
+    with _make_supabase(cfg) as sb, _make_paper_sources(cfg) as sources:
+        written = enrich.enrich_publications(sb, sources, limit=args.limit)
+
+    if written == 0:
+        print("No publications enriched (nothing missing, or nothing matched).")
+        return 0
+    print(f"Enriched {written} publication(s) with OpenAlex fields (citation_count/concepts/oa_status).")
+    return 0
+
+
 def _cmd_qa(args: argparse.Namespace) -> int:
     """Pull the live Supabase data and write a plain-text QA report.
 
@@ -349,6 +376,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=None, help="write at most N descriptions this run"
     )
     p_desc.set_defaults(func=_cmd_describe)
+
+    p_enrich = sub.add_parser(
+        "enrich",
+        help="fill citation_count/concepts/oa_status onto publications via OpenAlex",
+    )
+    p_enrich.add_argument(
+        "--limit", type=int, default=None, help="cap how many publications to enrich this run"
+    )
+    p_enrich.set_defaults(func=_cmd_enrich)
 
     p_qa = sub.add_parser("qa", help="QA report on the live Supabase data")
     p_qa.add_argument(

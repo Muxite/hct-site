@@ -55,6 +55,16 @@ def test_parser_describe_defaults():
     assert args.all is False and args.fetch is False and args.limit is None
 
 
+def test_parser_enrich_defaults():
+    args = cli.build_parser().parse_args(["enrich"])
+    assert args.command == "enrich" and args.limit is None
+
+
+def test_parser_enrich_limit():
+    args = cli.build_parser().parse_args(["enrich", "--limit", "10"])
+    assert args.limit == 10
+
+
 def test_parser_qa_defaults():
     args = cli.build_parser().parse_args(["qa"])
     assert args.command == "qa"
@@ -246,6 +256,38 @@ def test_qa_command_nonzero_on_error(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(cli, "_make_supabase", lambda cfg: _FakeSupabase(rows))
     rc = cli.main(["qa", "--no-source-check", "--out", str(tmp_path / "qa.txt")])
     assert rc == 1
+
+
+def test_enrich_command_prints_summary(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(cli, "_make_paper_sources", lambda cfg: _NullCtx())
+    seen = {}
+
+    def fake_enrich(sb, sources, *, limit=None):
+        seen["limit"] = limit
+        return 3
+
+    monkeypatch.setattr("src.enrich.enrich_publications", fake_enrich)
+    rc = cli.main(["enrich"])
+    assert rc == 0
+    assert seen["limit"] is None
+    assert "Enriched 3 publication" in capsys.readouterr().out
+
+
+def test_enrich_command_passes_limit_and_reports_noop(monkeypatch, capsys):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(cli, "_make_paper_sources", lambda cfg: _NullCtx())
+    seen = {}
+
+    def fake_enrich(sb, sources, *, limit=None):
+        seen["limit"] = limit
+        return 0
+
+    monkeypatch.setattr("src.enrich.enrich_publications", fake_enrich)
+    rc = cli.main(["enrich", "--limit", "5"])
+    assert rc == 0
+    assert seen["limit"] == 5
+    assert "No publications enriched" in capsys.readouterr().out
 
 
 def test_health_command(monkeypatch, capsys):

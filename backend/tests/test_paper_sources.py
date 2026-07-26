@@ -22,6 +22,7 @@ OPENALEX_WORK = {
     "title": "A unified representation of control logic",
     "display_name": "A unified representation of control logic",
     "publication_year": 2022,
+    "cited_by_count": 17,
     "authorships": [
         {"author": {"display_name": "Hongzhi Zhu"}},
         {"author": {"display_name": "Sidney Fels"}},
@@ -31,8 +32,16 @@ OPENALEX_WORK = {
         "source": {"display_name": "Journal of Examples"},
     },
     "best_oa_location": {"pdf_url": "https://publisher.example/article/42.pdf"},
-    "open_access": {"is_oa": True, "oa_url": "https://oa.example/42.pdf"},
+    "open_access": {"is_oa": True, "oa_status": "gold", "oa_url": "https://oa.example/42.pdf"},
     "abstract_inverted_index": {"We": [0], "study": [1], "control": [2], "logic": [3]},
+    "concepts": [
+        {"display_name": "Control theory", "score": 0.81},
+        {"display_name": "Robotics", "score": 0.9},
+        {"display_name": "Noise (barely relevant)", "score": 0.02},
+        {"display_name": "Human-computer interaction", "score": 0.7},
+        {"display_name": "Signal processing", "score": 0.5},
+        {"display_name": "Dropped (6th place)", "score": 0.3},
+    ],
 }
 
 CROSSREF_ITEM = {
@@ -89,6 +98,25 @@ def test_parse_openalex_work():
     assert rec.oa_url == "https://oa.example/42.pdf"
     assert rec.abstract == "We study control logic"
     assert rec.canonical_url == "https://doi.org/10.1234/abc.2022"
+    assert rec.citation_count == 17
+    # Top 5 by score, descending -- the 6th-place and near-zero-score entries
+    # are dropped, and the response's own (unsorted) order is not trusted.
+    assert rec.concepts == [
+        "Robotics",
+        "Control theory",
+        "Human-computer interaction",
+        "Signal processing",
+        "Dropped (6th place)",
+    ]
+
+
+def test_parse_openalex_work_missing_citation_and_concepts_default_empty():
+    w = dict(OPENALEX_WORK)
+    w.pop("cited_by_count", None)
+    w.pop("concepts", None)
+    rec = parse_openalex_work(w)
+    assert rec.citation_count is None
+    assert rec.concepts == []
 
 
 def test_parse_crossref_work():
@@ -100,6 +128,9 @@ def test_parse_crossref_work():
     assert rec.venue == "Journal of Examples"
     assert rec.oa_url == "https://publisher.example/full.pdf"
     assert "control logic" in rec.abstract
+    # Crossref carries neither citation counts nor concept tags.
+    assert rec.citation_count is None
+    assert rec.concepts == []
 
 
 def test_canonical_url_falls_back_to_landing_without_doi():

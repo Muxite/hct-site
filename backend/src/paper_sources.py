@@ -6,9 +6,12 @@ abstract, so the summary step has real grounding text. Two sources, both injecte
 ``httpx.Client``-friendly (MockTransport in tests):
 
 * **OpenAlex** (primary) — one call returns the canonical landing page, an open
-  access URL when one exists, and the abstract (as an inverted index we
-  reconstruct). Very generous, keyless, "polite pool" via ``mailto``.
-* **Crossref** (fallback) — DOI metadata + sometimes a JATS abstract.
+  access URL when one exists, the abstract (as an inverted index we
+  reconstruct), and enrichment metadata (citation count, top concept tags) —
+  see :class:`WorkRecord`. Very generous, keyless, "polite pool" via ``mailto``.
+* **Crossref** (fallback) — DOI metadata + sometimes a JATS abstract. It
+  carries none of OpenAlex's enrichment fields, so those stay empty on a
+  Crossref-sourced record (see ``src/enrich.py``, which relies on this).
 
 We deliberately **never** touch scholar.google.* (it CAPTCHA-blocks the runner and
 is on a hard HOLD). arXiv preprints surface through OpenAlex locations, so there is
@@ -59,6 +62,8 @@ class WorkRecord:
     landing_url: str | None = None  # canonical publisher landing page
     oa_url: str | None = None  # free full text (pdf or OA landing), if any
     abstract: str | None = None
+    citation_count: int | None = None  # OpenAlex cited_by_count; Crossref: None
+    concepts: list[str] = field(default_factory=list)  # top OpenAlex topic tags
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -160,6 +165,19 @@ def _doi_only(doi: str | None) -> str | None:
 # --------------------------------------------------------------------------- #
 # Record parsing (pure, per source)
 # --------------------------------------------------------------------------- #
+# Cap on how many OpenAlex `concepts` entries we keep (top by score).
+_MAX_CONCEPTS = 5
+
+
+def _top_concepts(concepts: list[dict[str, Any]] | None, limit: int = _MAX_CONCEPTS) -> list[str]:
+    """The top ``limit`` OpenAlex ``concepts`` entries by ``score`` (descending),
+    as plain ``display_name`` strings. Re-sorts rather than trusting the
+    response's own ordering, and drops any entry missing a name."""
+
+    ranked = sorted(concepts or [], key=lambda c: c.get("score") or 0, reverse=True)
+    return [c["display_name"] for c in ranked[:limit] if c.get("display_name")]
+
+
 def parse_openalex_work(w: dict[str, Any]) -> WorkRecord:
     """Map an OpenAlex Work object onto a :class:`WorkRecord`."""
 
@@ -183,6 +201,8 @@ def parse_openalex_work(w: dict[str, Any]) -> WorkRecord:
         landing_url=primary.get("landing_page_url"),
         oa_url=oa_url,
         abstract=reconstruct_abstract(w.get("abstract_inverted_index")),
+        citation_count=w.get("cited_by_count"),
+        concepts=_top_concepts(w.get("concepts")),
         raw=w,
     )
 
