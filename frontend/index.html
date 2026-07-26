@@ -9,6 +9,17 @@
       content="The Human Communication Technologies (HCT) Lab at UBC — human-computer interaction and artificial intelligence research, led by Sidney Fels."
     />
     <link rel="icon" type="image/png" href="/Human Communication Technologies Lab_files/logo.png" />
+    <!--
+      Cross-origin resources this page depends on. vercel.json ships a
+      frame-ancestors-only Content-Security-Policy (clickjacking cover for
+      #/admin, whose one-click controls spend CI/LLM budget and delete people);
+      a full CSP is deliberate follow-up work, because it has to enumerate
+      every origin below plus Supabase's own https://<ref>.supabase.co (REST,
+      Auth and Storage, incl. the site-media image URLs stored in rows) and
+      Vite's inlined module/style handling, or it silently breaks the site:
+        - https://fonts.googleapis.com  (stylesheet)
+        - https://fonts.gstatic.com     (font files)
+    -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
