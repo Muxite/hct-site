@@ -28,7 +28,8 @@ export function pathFromHash(hash) {
   return raw.split("?")[0] || "/";
 }
 
-function currentPath() {
+/** The current hash-routed path, e.g. "/projects/artisynth" (no query string). */
+export function currentPath() {
   return pathFromHash(typeof window !== "undefined" ? window.location.hash : "");
 }
 
@@ -46,6 +47,28 @@ export function useHashPath() {
 /** Navigate to a new hash path (pushes a history entry). */
 export function navigate(path) {
   window.location.hash = path;
+}
+
+// Counts hash changes since this module loaded (any origin — a plain <a
+// href="#/...">, navigate() above, or the browser's own back/forward), not
+// just navigate() calls, since most in-app links are bare anchors rather than
+// calls through this function. A fresh page load / hard refresh starts at 0.
+let hashChangeCount = 0;
+if (typeof window !== "undefined") {
+  window.addEventListener("hashchange", () => {
+    hashChangeCount += 1;
+  });
+}
+
+/** Whether `window.history.back()` would land somewhere inside this app
+ * (at least one in-app navigation has happened since page load) rather than
+ * off the site entirely or nowhere. Used to make a page's "Back" control
+ * return to wherever the visitor actually came from — search results, a
+ * project page, the timeline — instead of a single hardcoded destination,
+ * while still having something sensible to fall back to for a direct/shared
+ * link that skips straight to the page with no prior in-app history. */
+export function canGoBack() {
+  return hashChangeCount > 0;
 }
 
 /**

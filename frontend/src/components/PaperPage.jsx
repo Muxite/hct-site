@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Prose from "./Prose.jsx";
 import { assetUrl, formatAuthors, typeLabel, paperImagePath } from "../lib/format.js";
+import { canGoBack } from "../lib/router.js";
 import { getPublication, updatePublication } from "../data/db.js";
 import { uploadToSiteMedia } from "../data/storage.js";
 import { useAdmin } from "../context/AdminContext.jsx";
@@ -77,7 +78,25 @@ export default function PaperPage({ slug }) {
   return (
     <article className="paper-page">
       <p className="breadcrumb">
-        {pub.project_slug ? (
+        {/* Papers reached inside a project page still link there (via the
+            fallback href) for a fresh/shared link with no prior in-app
+            history — but a paper found via search, the timeline, or ⌘K
+            shouldn't force a detour through its project's page just because
+            it happens to belong to one. When we know history.back() lands
+            somewhere in this app (canGoBack), use it and say only "Back" —
+            the destination isn't the project by definition here, so a more
+            specific label would be a guess. */}
+        {canGoBack() ? (
+          <a
+            href={pub.project_slug ? `#/projects/${pub.project_slug}` : "#/"}
+            onClick={(e) => {
+              e.preventDefault();
+              window.history.back();
+            }}
+          >
+            ← Back
+          </a>
+        ) : pub.project_slug ? (
           <a href={`#/projects/${pub.project_slug}`}>← Back to project</a>
         ) : (
           <a href="#/">← Back to HCT Lab</a>

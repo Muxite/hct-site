@@ -45,6 +45,15 @@ export function themeById(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
 }
 
+/** Derive the requested theme id from a router path, e.g. "/console" -> "console",
+ * "/console/" -> "console", "/" or "/projects" -> null (not a themed URL — the
+ * caller falls back to the stored/default preference). */
+export function themeFromPath(path) {
+  const clean = String(path || "").replace(/\/+$/, "");
+  const id = clean.startsWith("/") ? clean.slice(1) : clean;
+  return isTheme(id) ? id : null;
+}
+
 /**
  * Whether SiteHome.jsx's Gallery should refetch its cached record data on
  * this render. Classic (<Home>) always refetches fresh on its own mount, but

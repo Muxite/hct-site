@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { matchRoute, pathFromHash } from "./router.js";
+import { matchRoute, pathFromHash, canGoBack } from "./router.js";
 
 const ROUTES = [
   ["/", "home"],
@@ -63,4 +63,17 @@ test("pathFromHash treats an auth error callback as / too", () => {
 
 test("pathFromHash does not false-positive on an unrelated query param", () => {
   assert.equal(pathFromHash("#/papers/foo?access_token_ref=1"), "/papers/foo");
+});
+
+// --- canGoBack ---------------------------------------------------------------
+// This is a plain node:test run — no `window`, so the module's own
+// `typeof window !== "undefined"` guard never wires up the hashchange
+// listener and the counter can never move off 0. That's the one thing worth
+// asserting here: the guard itself doesn't throw when `window` is absent, and
+// it correctly reports "nothing to go back to" in that case — the true/"has
+// history" branch needs a real browser (covered by the Playwright screenshot
+// pass instead, per this codebase's convention for anything DOM-dependent).
+test("canGoBack reports false with no window (and doesn't throw)", () => {
+  assert.equal(typeof window, "undefined");
+  assert.equal(canGoBack(), false);
 });

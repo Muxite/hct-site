@@ -9,6 +9,7 @@ import {
   searchCommands,
   isTheme,
   themeById,
+  themeFromPath,
   PEOPLE_SECTION_ID,
   shouldReloadGalleryData,
 } from "./variants.js";
@@ -169,6 +170,26 @@ test("theme guards", () => {
   assert.ok(!isTheme("nope"));
   assert.equal(themeById("nope").id, "signal"); // falls back to first
   assert.equal(themeById("console").label, "Console");
+});
+
+// --- themeFromPath (per-theme URLs: "/signal", "/console", ...) -------------
+test("themeFromPath recognizes each theme's own URL", () => {
+  assert.equal(themeFromPath("/signal"), "signal");
+  assert.equal(themeFromPath("/console"), "console");
+  assert.equal(themeFromPath("/journal"), "journal");
+  assert.equal(themeFromPath("/classic"), "classic");
+});
+
+test("themeFromPath tolerates a trailing slash", () => {
+  assert.equal(themeFromPath("/console/"), "console");
+});
+
+test("themeFromPath returns null for non-themed paths", () => {
+  assert.equal(themeFromPath("/"), null);
+  assert.equal(themeFromPath("/projects"), null);
+  assert.equal(themeFromPath("/projects/signal"), null); // not a bare theme path
+  assert.equal(themeFromPath(""), null);
+  assert.equal(themeFromPath(undefined), null);
 });
 
 // --- shouldReloadGalleryData (SiteHome.jsx's Classic -> redesign refetch) ---

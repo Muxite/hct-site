@@ -4,6 +4,7 @@ import Header from "./components/Header.jsx";
 import AdminPreviewBanner from "./components/AdminPreviewBanner.jsx";
 import { AdminProvider } from "./context/AdminContext.jsx";
 import { matchRoute, useHashPath } from "./lib/router.js";
+import { THEMES } from "./lib/variants.js";
 
 // Each route is its own lazy chunk — visiting the homepage never pulls in the
 // samples bake-off UI, and visiting a paper page never pulls in the project
@@ -17,8 +18,16 @@ const PapersPage = lazy(() => import("./components/PapersPage.jsx"));
 const Samples = lazy(() => import("./components/Samples.jsx"));
 const AdminPage = lazy(() => import("./components/AdminPage.jsx"));
 
+// Each theme also gets its own top-level URL (e.g. "/console") so a specific
+// look is bookmarkable/shareable and reachable via the browser's own
+// back/forward — not just a client-side toggle hidden in localStorage. All
+// four still render the same <SiteHome>; it reads the requested theme back
+// out of `path` (see lib/variants.js's themeFromPath).
+const THEME_ROUTES = THEMES.map((t) => [`/${t.id}`, "home"]);
+
 const ROUTES = [
   ["/", "home"],
+  ...THEME_ROUTES,
   ["/projects", "projects-index"],
   ["/projects/:slug", "project"],
   ["/papers", "papers-index"],
@@ -32,7 +41,7 @@ const ROUTES = [
 function Route({ path, meta }) {
   const match = matchRoute(path, ROUTES);
   if (!match) return <div className="state">Page not found. <a href="#/">Go home</a></div>;
-  if (match.value === "home") return <SiteHome meta={meta} />;
+  if (match.value === "home") return <SiteHome meta={meta} path={path} />;
   if (match.value === "projects-index") return <ProjectsPage />;
   if (match.value === "project") return <ProjectPage slug={match.params.slug} />;
   if (match.value === "papers-index") return <PapersPage />;
@@ -42,11 +51,13 @@ function Route({ path, meta }) {
   return null;
 }
 
+const CHROMELESS_PATHS = new Set(["/", "/variants", ...THEMES.map((t) => `/${t.id}`)]);
+
 // The homepage is a full-bleed shell that renders its own masthead/footer (per
 // selected look), so it opts out of the shared chrome. Everything else keeps it.
 function isChromeless(path) {
   const clean = path.split("?")[0].replace(/\/$/, "") || "/";
-  return clean === "/" || clean === "/variants";
+  return CHROMELESS_PATHS.has(clean);
 }
 
 export default function App() {

@@ -15,6 +15,7 @@ import {
   DEFAULT_THEME,
   isTheme,
   themeById,
+  themeFromPath,
   yearHistogram,
   buildStats,
   filterPublications,
@@ -23,6 +24,7 @@ import {
   PEOPLE_SECTION_ID,
   shouldReloadGalleryData,
 } from "../lib/variants.js";
+import { navigate } from "../lib/router.js";
 import { groupByYear, formatAuthors, typeLabel } from "../lib/format.js";
 import { splitByKind, emailLabel, assetUrl, projectImagePath } from "../lib/format.js";
 import { useAdmin } from "../context/AdminContext.jsx";
@@ -60,12 +62,41 @@ const RENDER_CAP = 80; // how many filtered pubs to render before "load more"
 // shell. Every feature (search, the clickable timeline, dark mode, ⌘K) works
 // identically in each redesign; only the paint changes. All content is live
 // Supabase data — nothing here is invented.
-export default function SiteHome({ meta = {} }) {
+export default function SiteHome({ meta = {}, path = "/" }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [variant, setVariant] = useState(() => readStored(THEME_KEY, DEFAULT_THEME, isTheme));
+  // A themed URL (e.g. "/console") wins on first render; bare "/" (and the
+  // back-compat "/variants") falls back to whatever the visitor last chose,
+  // same as before these had their own URLs.
+  const [variant, setVariant] = useState(
+    () => themeFromPath(path) || readStored(THEME_KEY, DEFAULT_THEME, isTheme),
+  );
   const [dark, setDark] = useState(() => readStored(MODE_KEY, "light") === "dark");
   const { editMode } = useAdmin();
+
+  // Keeps `variant` in step with the URL for every OTHER way the path can
+  // change after mount: the browser's back/forward buttons, a link elsewhere
+  // in the app pointing straight at "#/journal", or typing a themed URL in
+  // directly. Only acts when the path actually names a theme — visiting a
+  // non-themed chromeless path (bare "/", "/variants") leaves `variant`
+  // alone, so the switcher's own navigate() below (which always targets a
+  // themed URL) is the only thing that can reach those from here anyway.
+  useEffect(() => {
+    const requested = themeFromPath(path);
+    if (requested && requested !== variant) setVariant(requested);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+
+  // The switcher now does a real navigation (pushes a history entry, updates
+  // the address bar) instead of only flipping local state, so each look is
+  // its own bookmarkable/shareable URL and the browser's back/forward moves
+  // between them. The effect above folds the resulting path change back into
+  // `variant` on the next render; setting it here too keeps the switch feeling
+  // instant rather than waiting a tick on the hashchange round trip.
+  function selectVariant(id) {
+    setVariant(id);
+    navigate(`/${id}`);
+  }
 
   const isClassic = variant === "classic";
 
@@ -154,7 +185,7 @@ export default function SiteHome({ meta = {} }) {
   const switcher = (
     <Switcher
       variant={variant}
-      onVariant={setVariant}
+      onVariant={selectVariant}
       dark={dark}
       onDark={setDark}
       supportsDark={theme.dark && variant !== "console"}
@@ -522,6 +553,25 @@ function Gallery({ data, onDataChange }) {
         </figure>
       </header>
 
+      {/* PEOPLE — moved ahead of the record/search section so the lab's people
+          and projects read before its publication list, matching Classic's
+          own order (Home.jsx: People -> Research -> Publications). */}
+      <section className="vlab-section" id={PEOPLE_SECTION_ID}>
+        <h2 className="vlab-h2">People</h2>
+        <Roster people={people} onPeopleChange={updatePeopleList} />
+      </section>
+
+      {/* PROJECTS — only the current ones; past projects are one click away */}
+      <section className="vlab-section" id="vlab-projects">
+        <h2 className="vlab-h2">Projects</h2>
+        <ProjectGrid projects={featuredProjects} onProjectsChange={updateProjectsList} />
+        {archivedCount > 0 && (
+          <a className="vlab-more" href="#/projects">
+            See all {projects.length} projects — including {archivedCount} past projects →
+          </a>
+        )}
+      </section>
+
       {/* SEARCH + FILTER over the full record */}
       <section className="vlab-find" ref={pubsRef}>
         <div className="vlab-find__head">
@@ -593,23 +643,6 @@ function Gallery({ data, onDataChange }) {
             </button>
           )}
         </div>
-      </section>
-
-      {/* PEOPLE */}
-      <section className="vlab-section" id={PEOPLE_SECTION_ID}>
-        <h2 className="vlab-h2">People</h2>
-        <Roster people={people} onPeopleChange={updatePeopleList} />
-      </section>
-
-      {/* PROJECTS — only the current ones; past projects are one click away */}
-      <section className="vlab-section" id="vlab-projects">
-        <h2 className="vlab-h2">Projects</h2>
-        <ProjectGrid projects={featuredProjects} onProjectsChange={updateProjectsList} />
-        {archivedCount > 0 && (
-          <a className="vlab-more" href="#/projects">
-            See all {projects.length} projects — including {archivedCount} past projects →
-          </a>
-        )}
       </section>
 
       {/* The prose the legacy site carried — live site_content, nothing invented */}

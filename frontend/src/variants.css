@@ -122,16 +122,20 @@
 
 /* --- hero + spectrogram --------------------------------------------------- */
 .vlab-hero { display: block; padding: clamp(48px, 8vw, 104px) 0 40px; }
-/* Wide viewports: name on the left, the record's headline numbers on the right,
-   so the hero reads as intentional rather than half-drawn. The 1.4fr/1fr split
-   keeps the title's 16ch measure intact. */
+/* Centered as a single column — name, tagline, and the headline numbers all
+   read as one block on the hero's own center line, rather than a left/right
+   split. `.vlab-hero` is a direct child of `.vlab`, which gives every direct
+   child (this one and `.vlab-find` below) the same `max-width`/auto-margin
+   centering, so the hero sits in line with the record/papers section under
+   it — same left/right bounds, hero content additionally centered within them. */
 .vlab-hero__top {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: clamp(24px, 5vw, 72px);
-  align-items: end;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(24px, 5vw, 40px);
+  text-align: center;
 }
-.vlab-hero__lead { min-width: 0; }
+.vlab-hero__lead { min-width: 0; display: flex; flex-direction: column; align-items: center; }
 .vlab-hero__eyebrow {
   font-family: var(--v-font-mono);
   font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
@@ -172,16 +176,18 @@
 
 /* --- stats ---------------------------------------------------------------- */
 .vlab-stats {
-  display: grid; grid-template-columns: repeat(2, 1fr);
-  gap: clamp(12px, 2vw, 28px) clamp(16px, 3vw, 36px); margin: 0;
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: clamp(20px, 4vw, 48px); margin: 0; width: 100%;
   padding: 0; border-top: 1px solid var(--v-line); padding-top: 22px;
 }
-.vlab-stat:last-child { grid-column: span 2; }
 /* The markup is <dt> (label) then <dd> (number), because a description list's
    term must precede its description; column-reverse puts the number back on
    top visually. The label's margin-top still reads as the gap between them —
    physical margins don't flip with the flex direction. */
-.vlab-stat { margin: 0; display: flex; flex-direction: column-reverse; }
+.vlab-stat {
+  margin: 0; display: flex; flex-direction: column-reverse; align-items: center;
+  min-width: 96px;
+}
 .vlab-stat__n {
   font-family: var(--v-font-display);
   font-size: clamp(1.7rem, 3.4vw, 2.9rem); font-weight: 600; line-height: 1;
@@ -189,7 +195,7 @@
 }
 .vlab-stat__label {
   display: block; margin-top: 8px; font-size: 12.5px; color: var(--v-muted);
-  letter-spacing: .01em;
+  letter-spacing: .01em; text-align: center;
 }
 
 /* --- section scaffolding -------------------------------------------------- */
@@ -529,8 +535,7 @@
 
 /* --- responsive ----------------------------------------------------------- */
 @media (max-width: 760px) {
-  .vlab-hero__top { grid-template-columns: 1fr; gap: 32px; align-items: start; }
-  .vlab-stats { row-gap: 24px; }
+  .vlab-hero__top { gap: 28px; }
   .vlab-pubyear { grid-template-columns: 1fr; gap: 4px; }
   .vlab-pubyear__label { position: static; }
   .vlab-switch { justify-content: center; }
