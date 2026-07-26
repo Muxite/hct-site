@@ -67,7 +67,12 @@
   --v-surface: #f7f7f5;
   --v-ink: #16181d;
   --v-muted: #6a6f78;
-  --v-faint: #9aa0aa;
+  /* --v-faint carries real content, not just decoration (.vlab-cmd__sub is the
+     only thing separating two similarly-titled palette results, .vlab-pub__type
+     labels the publication kind), so every theme's value below is tuned to clear
+     WCAG AA 4.5:1 against BOTH that theme's --v-bg and its --v-surface — the
+     latter is the tighter case, and .vlab-cmd__item.is-active paints it. */
+  --v-faint: #69707d;
   --v-line: #e3e4e8;
   --v-accent: #e4572e;
   --v-accent-2: #118ab2;
@@ -473,12 +478,12 @@
    =========================================================================== */
 .vlab[data-variant="signal"][data-mode="light"] {
   --v-bg: #fbfaf7; --v-surface: #f2f0ea; --v-ink: #1a1c22; --v-muted: #6b6f78;
-  --v-faint: #a4a8b0; --v-line: #e6e3db; --v-accent: #e4572e; --v-accent-2: #0e7c9b;
+  --v-faint: #676c77; --v-line: #e6e3db; --v-accent: #e4572e; --v-accent-2: #0e7c9b;
   --v-bar: #ded9cf;
 }
 .vlab[data-variant="signal"][data-mode="dark"] {
   --v-bg: #0e1116; --v-surface: #171c24; --v-ink: #eef1f6; --v-muted: #9aa3b2;
-  --v-faint: #5f6875; --v-line: #232a35; --v-accent: #ff6b3d; --v-accent-2: #38bdf8;
+  --v-faint: #7b8694; --v-line: #232a35; --v-accent: #ff6b3d; --v-accent-2: #38bdf8;
   --v-accent-ink: #0e1116; --v-bar: #2a323f;
 }
 
@@ -488,7 +493,7 @@
    =========================================================================== */
 .vlab[data-variant="console"] {
   --v-bg: #0a0c10; --v-surface: #10141a; --v-ink: #d8e0e8; --v-muted: #7d8794;
-  --v-faint: #4a5563; --v-line: #1c232c; --v-accent: #f5a623; --v-accent-2: #46d3a0;
+  --v-faint: #718195; --v-line: #1c232c; --v-accent: #f5a623; --v-accent-2: #46d3a0;
   --v-accent-ink: #0a0c10; --v-bar: #223040; --v-bar-on: #f5a623; --v-radius: 4px;
   --v-font-display: var(--v-font-mono); --v-font-body: var(--v-font-mono);
 }
@@ -508,7 +513,7 @@
    =========================================================================== */
 .vlab[data-variant="journal"] {
   --v-bg: #f8f7f3; --v-surface: #efeee7; --v-ink: #1c2434; --v-muted: #5a6274;
-  --v-faint: #9aa0ac; --v-line: #dddacf; --v-accent: #9e2b25; --v-accent-2: #2f4b7c;
+  --v-faint: #646b79; --v-line: #dddacf; --v-accent: #9e2b25; --v-accent-2: #2f4b7c;
   --v-accent-ink: #f8f7f3; --v-bar: #d3cfc2; --v-radius: 3px;
   --v-font-display: "Newsreader", Georgia, "Times New Roman", serif;
   --v-font-body: "Newsreader", Georgia, serif;
