@@ -6,9 +6,18 @@
 --   * RLS enabled on every table in the public schema.
 --   * One SELECT policy per table for anon + authenticated (USING true) — the
 --     whole site is public read.
---   * NO insert/update/delete policies -> anon/publishable clients cannot write.
---   * Explicit GRANT SELECT to anon/authenticated (new tables are not always
---     auto-exposed to the Data API).
+--   * Two independent layers stop a publishable-key client writing, and it is
+--     worth being precise about which does what:
+--       - RLS is the real enforcement. Absent an INSERT/UPDATE/DELETE policy,
+--         no row may be written, whatever privileges the role holds.
+--       - GRANTs are the second layer, and are NOT automatic. Supabase's
+--         default privileges give `anon`/`authenticated` the *full* set
+--         (including TRUNCATE, which RLS does not police at all) on every new
+--         table in `public`. So the `revoke all ... from anon, authenticated`
+--         below is load-bearing — the `grant select` lines that follow it only
+--         narrow anything *because* of that revoke. Re-running this file
+--         re-applies it, which also clears the broad defaults re-granted to
+--         any table created since (e.g. via the dashboard).
 --   * Exception: `feedback` (bottom of this file) allows anon/authenticated
 --     INSERT only, no SELECT — see that section for why.
 --
@@ -166,6 +175,18 @@ create policy "public read" on public.research       for select to anon, authent
 create policy "public read" on public.project_people for select to anon, authenticated using (true);
 create policy "public read" on public.site_content   for select to anon, authenticated using (true);
 
+-- Strip the broad default privileges Supabase hands `anon`/`authenticated` on
+-- every table in `public` (SELECT+INSERT+UPDATE+DELETE+TRUNCATE+REFERENCES+
+-- TRIGGER), then hand back only what the policies above and below actually
+-- need. Without this the `grant select` lines are decorative and TRUNCATE —
+-- which RLS does not cover — is available to a browser key.
+--
+-- This has to sweep *all* tables, so it necessarily also strips the tables
+-- created further down this file (paper_samples, feedback, admins,
+-- style_profile); each of those sections re-grants its own privileges after
+-- its `create table`, so a full re-run of this file lands in the right place.
+revoke all on all tables in schema public from anon, authenticated;
+
 -- Expose to the Data API (read only). Writes are done with the secret key,
 -- which bypasses RLS and these grants.
 grant select on public.publications   to anon, authenticated;
@@ -293,6 +314,24 @@ create table if not exists public.style_profile (
   profile_text   text,
   updated_at     timestamptz default now()
 );
+
+-- `source_excerpt` is admin-supplied free text that `hct-manager style-regen`
+-- distils into `profile_text`, which is then threaded into every describe /
+-- summarize prompt. Unbounded it is both an unbounded-cost surface (the whole
+-- excerpt goes to the model on each regen) and an unbounded prompt-injection
+-- surface. 20k characters is several thousand words -- far more than a voice
+-- sample needs. `profile_text` is model output rather than admin input, but it
+-- is what actually lands in the prompts, so it gets the same ceiling. The
+-- admin textarea mirrors this limit (frontend/src/components/AdminPage.jsx,
+-- `EXCERPT_MAX`) so a long paste is trimmed visibly rather than failing at
+-- save time; keep the two numbers in step.
+alter table public.style_profile drop constraint if exists style_profile_source_excerpt_check;
+alter table public.style_profile add constraint style_profile_source_excerpt_check
+  check (source_excerpt is null or char_length(source_excerpt) <= 20000);
+alter table public.style_profile drop constraint if exists style_profile_profile_text_check;
+alter table public.style_profile add constraint style_profile_profile_text_check
+  check (profile_text is null or char_length(profile_text) <= 20000);
+
 alter table public.style_profile enable row level security;
 drop policy if exists "admin read/write style_profile" on public.style_profile;
 create policy "admin read/write style_profile" on public.style_profile
@@ -316,35 +355,54 @@ create unique index if not exists people_name_key on public.people (name);
 
 -- Guard triggers: RLS can restrict which *rows* an admin may update but not
 -- which *columns* -- `research` and `publications` each get a narrow admin
--- update policy below, backed by a BEFORE UPDATE trigger that raises if any
--- non-whitelisted column differs between OLD and NEW. Gated on
--- `auth.role() = 'authenticated'` so backend service-role writes (which
--- legitimately touch every other column, e.g. sync_content.py) never trip
--- this guard -- it only fires for edits made through a logged-in Supabase
--- Auth session (i.e. the admin UI). `search_path` is pinned per the
--- function-search-path-mutable advisory. `publications.updated_at` is
--- bookkeeping, not admin-editable content, so it's excluded from the
--- column-diff check entirely and unconditionally stamped to `now()` by the
--- trigger -- an admin update that also sends `updated_at` (a natural thing
--- for a client to do) is silently corrected rather than rejected.
--- `research` has no analogous timestamp column, so it needs no such carve-out.
+-- update policy below, backed by a BEFORE UPDATE trigger that raises if
+-- anything outside a small allowlist differs between OLD and NEW.
+--
+-- Two properties matter here, and both were originally the other way round:
+--
+--   * ALLOWLIST, not denylist. The check compares `to_jsonb(new)` against
+--     `to_jsonb(old)` with the *allowed* keys removed, rather than naming the
+--     forbidden columns one by one. A denylist has to be edited every time the
+--     table grows or the new column silently becomes admin-writable; this
+--     locks unknown columns out by default and needs no maintenance.
+--
+--   * FAIL-CLOSED. The guard runs for every caller *except* the backend's
+--     service role, instead of running only when `auth.role()` happens to read
+--     'authenticated'. The service test keys off `current_user` first, because
+--     PostgREST switches to the `service_role` DB role for the secret key
+--     whatever that key's claims look like; `auth.role()` is a second signal.
+--     Both comparisons use `is distinct from`, which is NULL-safe --- with `=`
+--     the whole condition evaluates to NULL when there is no JWT, plpgsql
+--     treats that as false, and the guard skips itself (verified: that is
+--     exactly what happened before this was corrected).
+--
+-- Consequence: a direct owner/superuser session (SQL editor, MCP, a migration)
+-- is guarded too. That is the intent. For a deliberate maintenance write to a
+-- locked column from such a session, run it inside a transaction that first
+-- does `set local role service_role;`.
+--
+-- `search_path` is pinned per the function-search-path-mutable advisory.
+-- `publications.updated_at` is bookkeeping, not admin-editable content, so it
+-- sits in the allowlist (excluded from the diff) and is unconditionally
+-- stamped to `now()` by the trigger -- an admin update that also sends
+-- `updated_at` (a natural thing for a client to do) is silently corrected
+-- rather than rejected. `research` has no analogous timestamp column, so it
+-- needs no such carve-out.
 create or replace function public.research_admin_guard()
 returns trigger
 language plpgsql
 set search_path = ''
 as $$
+declare
+  -- The only columns an admin-UI update may change.
+  allowed constant text[] := array['summary', 'hero_image', 'tagline'];
 begin
-  if auth.role() = 'authenticated' then
-    if new.id is distinct from old.id
-       or new.title is distinct from old.title
-       or new.description is distinct from old.description
-       or new.link is distinct from old.link
-       or new.image is distinct from old.image
-       or new.sort_order is distinct from old.sort_order
-       or new.kind is distinct from old.kind
-       or new.slug is distinct from old.slug
-    then
-      raise exception 'research_admin_guard: admin update may only change summary, hero_image, tagline';
+  if current_user is distinct from 'service_role'
+     and auth.role() is distinct from 'service_role'
+  then
+    if to_jsonb(new) - allowed is distinct from to_jsonb(old) - allowed then
+      raise exception
+        'research_admin_guard: admin update may only change summary, hero_image, tagline';
     end if;
   end if;
   return new;
@@ -360,24 +418,18 @@ returns trigger
 language plpgsql
 set search_path = ''
 as $$
+declare
+  -- Admin-editable columns, plus `updated_at` (see the note above).
+  allowed constant text[] := array[
+    'summary_plain', 'summary_abstract', 'summary_par', 'image', 'updated_at'
+  ];
 begin
-  if auth.role() = 'authenticated' then
-    if new.id is distinct from old.id
-       or new.slug is distinct from old.slug
-       or new.title is distinct from old.title
-       or new.authors is distinct from old.authors
-       or new.year is distinct from old.year
-       or new.type is distinct from old.type
-       or new.venue is distinct from old.venue
-       or new.link is distinct from old.link
-       or new.bibtex is distinct from old.bibtex
-       or new.description is distinct from old.description
-       or new.project_slug is distinct from old.project_slug
-       or new.citation_count is distinct from old.citation_count
-       or new.concepts is distinct from old.concepts
-       or new.oa_status is distinct from old.oa_status
-    then
-      raise exception 'publications_admin_guard: admin update may only change summary_plain, summary_abstract, summary_par, image';
+  if current_user is distinct from 'service_role'
+     and auth.role() is distinct from 'service_role'
+  then
+    if to_jsonb(new) - allowed is distinct from to_jsonb(old) - allowed then
+      raise exception
+        'publications_admin_guard: admin update may only change summary_plain, summary_abstract, summary_par, image';
     end if;
   end if;
   new.updated_at := now();
@@ -450,15 +502,82 @@ grant update on public.publications to authenticated;
 insert into storage.buckets (id, name, public) values ('site-media', 'site-media', true) on conflict (id) do nothing;
 insert into storage.buckets (id, name, public) values ('cv-uploads', 'cv-uploads', false) on conflict (id) do nothing;
 
+-- Bounded uploads. Both buckets shipped with `file_size_limit` and
+-- `allowed_mime_types` null, i.e. any size, any type. The frontend's
+-- isImageFile/isDocxFile checks (frontend/src/lib/format.js) are client-side
+-- hints and are trivially bypassed; these are the server-side bound.
+--
+-- site-media is public-read, so the allowlist is deliberately narrow: the four
+-- raster formats every browser renders. image/svg+xml is excluded on purpose
+-- -- an SVG is a script-carrying document served from a public origin. Adding
+-- a format here (avif, heic, ...) means updating this list.
+update storage.buckets
+   set allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+       file_size_limit    = 10485760   -- 10 MiB
+ where id = 'site-media';
+-- cv-uploads holds exactly one object, cv/current.docx. The docx MIME type is
+-- pinned client-side too (frontend/src/data/storage.js `asDocx`), because some
+-- pickers report an empty type for a .docx and Storage reads the type off the
+-- blob rather than from supabase-js's `contentType` option.
+update storage.buckets
+   set allowed_mime_types = array['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+       file_size_limit    = 20971520   -- 20 MiB
+ where id = 'cv-uploads';
+
 drop policy if exists "site-media public read" on storage.objects;
 create policy "site-media public read" on storage.objects for select to anon, authenticated
   using (bucket_id = 'site-media');
 drop policy if exists "site-media admin write" on storage.objects;
 create policy "site-media admin write" on storage.objects for insert to authenticated
   with check (bucket_id = 'site-media' and exists (select 1 from public.admins where user_id = (select auth.uid())));
+-- Both admin policies scope `bucket_id` in *every* clause, WITH CHECK
+-- included. Postgres would reuse USING as the WITH CHECK where one is missing,
+-- so this is equivalent today; writing it out means a later edit to one clause
+-- cannot silently widen the other.
 drop policy if exists "site-media admin update" on storage.objects;
 create policy "site-media admin update" on storage.objects for update to authenticated
-  using (bucket_id = 'site-media' and exists (select 1 from public.admins where user_id = (select auth.uid())));
+  using      (bucket_id = 'site-media' and exists (select 1 from public.admins where user_id = (select auth.uid())))
+  with check (bucket_id = 'site-media' and exists (select 1 from public.admins where user_id = (select auth.uid())));
 drop policy if exists "cv-uploads admin all" on storage.objects;
 create policy "cv-uploads admin all" on storage.objects for all to authenticated
-  using (bucket_id = 'cv-uploads' and exists (select 1 from public.admins where user_id = (select auth.uid())));
+  using      (bucket_id = 'cv-uploads' and exists (select 1 from public.admins where user_id = (select auth.uid())))
+  with check (bucket_id = 'cv-uploads' and exists (select 1 from public.admins where user_id = (select auth.uid())));
+
+-- ...and the clause scoping above is necessary but not sufficient, which is
+-- why this trigger exists. Permissive policies OR together *per phase*, and an
+-- UPDATE tests USING against the OLD row and WITH CHECK against the NEW one.
+-- So `update storage.objects set bucket_id = 'site-media' where bucket_id =
+-- 'cv-uploads'` passes USING via the cv-uploads policy and WITH CHECK via the
+-- site-media policy: an admin could walk the private CV into the public
+-- bucket (verified live before this was added). No arrangement of permissive
+-- policies can express "the bucket must not change" -- RLS cannot compare OLD
+-- to NEW.
+--
+-- Nothing in this app ever moves an object between buckets (see
+-- frontend/src/data/storage.js: two fixed buckets, fixed path conventions), so
+-- the operation is forbidden outright for the roles the API can reach.
+-- `service_role` (the backend's secret key) and `supabase_storage_admin`
+-- (Storage's own service role, for its internal maintenance) are exempt. The
+-- function lives in `public` because this project cannot create objects in the
+-- `storage` schema -- it can create the trigger.
+create or replace function public.storage_objects_bucket_lock()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.bucket_id is distinct from old.bucket_id
+     and current_user not in ('service_role', 'supabase_storage_admin')
+     and auth.role() is distinct from 'service_role'
+  then
+    raise exception
+      'storage_objects_bucket_lock: objects may not be moved between buckets (% -> %)',
+      old.bucket_id, new.bucket_id;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists storage_objects_bucket_lock_trigger on storage.objects;
+create trigger storage_objects_bucket_lock_trigger
+  before update on storage.objects
+  for each row execute function public.storage_objects_bucket_lock();
