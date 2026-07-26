@@ -5,13 +5,18 @@
  */
 import { useEffect, useState } from "react";
 
-// supabase-js's default (implicit) auth flow lands a magic-link sign-in's
-// session tokens directly in `location.hash` (e.g.
-// `#access_token=...&type=magiclink`, sometimes appended after our own route
-// like `#/admin&access_token=...`) — the same slot this router reads paths
-// from. That's not one of our routes, so treat it as "/" rather than a bogus
-// 404; supabase-js parses `window.location.href` for the tokens itself
-// (independent of this router) and clears the hash once it's done.
+// A defensive guard, not the happy path. data/db.js pins the Supabase client
+// to the PKCE flow precisely so an auth callback never lands in this slot:
+// PKCE returns its code as a *query* param, so the magic link arrives as
+// ".../?code=...#/admin" and the hash holds nothing but our own route.
+//
+// Under supabase-js's *default* implicit flow it would: the session tokens
+// come back in `location.hash` (e.g. `#access_token=...&type=magiclink`) —
+// the same slot this router reads paths from. GoTrue can also still put an
+// `error=`/`error_description=` on the fragment for a failed callback. Either
+// way that isn't one of our routes, so treat it as "/" rather than a bogus
+// 404 and let supabase-js (which parses `window.location.href` itself,
+// independent of this router) deal with it.
 const AUTH_CALLBACK_HASH = /(^|&)(access_token|error|error_description)=/;
 
 /** Pure: derive the router path from a raw `location.hash` value (leading

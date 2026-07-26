@@ -37,7 +37,28 @@ export function getClient() {
       "Missing VITE_SB_URL / VITE_SB_PUBLISHABLE_KEY — copy .env.example to .env",
     );
   }
-  _client = createClient(SB_URL, SB_PUBLISHABLE_KEY);
+  // flowType 'pkce' is load-bearing, not a preference. supabase-js defaults to
+  // the implicit flow, whose success redirect appends the session tokens to
+  // the URL *fragment* — the same slot this hash-routed app keeps its route
+  // in. With an `emailRedirectTo` of ".../#/admin" (see AdminContext.jsx) the
+  // magic link would land on ".../#/admin#access_token=...", and auth-js's own
+  // parser (`parseParametersFromURL` -> `new URLSearchParams(hash.slice(1))`)
+  // reads that first key as the literal string "/admin#access_token", so
+  // `params.access_token` is undefined, the implicit-grant check fails, and no
+  // session is ever established. The implicit branch also does
+  // `window.location.hash = ''` on success, which would throw the route away
+  // even if it had parsed.
+  //
+  // PKCE has neither problem: GoTrue returns the code as a *query* param, so
+  // the redirect is ".../?code=...#/admin" — auth-js reads `code` from
+  // `url.searchParams` (parsed separately from the hash) and this router reads
+  // "/admin" from the hash, with no collision. auth-js completes the exchange
+  // itself inside `_getSessionFromURL` (it calls `_exchangeCodeForSession`;
+  // nothing here needs to), and it clears only the `code` search param via
+  // history.replaceState, leaving the route intact.
+  _client = createClient(SB_URL, SB_PUBLISHABLE_KEY, {
+    auth: { flowType: "pkce" },
+  });
   return _client;
 }
 

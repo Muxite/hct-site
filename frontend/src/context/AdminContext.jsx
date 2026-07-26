@@ -11,6 +11,7 @@
  */
 import { createContext, useContext, useEffect, useState } from "react";
 import { getClient, getAdminStatus, isMockMode } from "../data/db.js";
+import { adminRedirectUrl } from "../lib/authRedirect.js";
 
 const MOCK = isMockMode();
 
@@ -77,11 +78,11 @@ export function AdminProvider({ children }) {
         shouldCreateUser: false,
         // Without this the magic link lands on the site root, which renders
         // the chromeless homepage — the admin would have to know to type
-        // #/admin back in by hand. Built from the current pathname rather
-        // than a bare origin so it keeps working if the app is ever served
-        // from a sub-path. Must also be listed under Supabase Auth's
-        // redirect-URL allowlist.
-        emailRedirectTo: `${window.location.origin}${window.location.pathname}#/admin`,
+        // #/admin back in by hand. The URL's exact shape matters (it has to
+        // survive supabase-js's callback parser, which is only true under the
+        // PKCE flow data/db.js pins): see lib/authRedirect.js and its test.
+        // Must also be listed under Supabase Auth's redirect-URL allowlist.
+        emailRedirectTo: adminRedirectUrl(window.location),
       },
     });
     if (error) throw error;
