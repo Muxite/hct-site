@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { getSiteContent } from "./data/db.js";
 import Header from "./components/Header.jsx";
+import AdminPreviewBanner from "./components/AdminPreviewBanner.jsx";
 import { AdminProvider } from "./context/AdminContext.jsx";
 import { matchRoute, useHashPath } from "./lib/router.js";
 
@@ -97,5 +98,14 @@ export default function App() {
   // useAdmin(), which throws when there's no provider above it. Nothing here
   // is an error boundary, so leaving that branch unwrapped meant a blank page
   // for every visitor to "/".
-  return <AdminProvider>{body}</AdminProvider>;
+  //
+  // AdminPreviewBanner is a sibling of `body` (not nested inside it) so it
+  // survives route/theme changes; it renders nothing unless the dev-only
+  // VITE_ADMIN_PREVIEW override (lib/adminPreview.js) is active.
+  return (
+    <AdminProvider>
+      {body}
+      <AdminPreviewBanner />
+    </AdminProvider>
+  );
 }

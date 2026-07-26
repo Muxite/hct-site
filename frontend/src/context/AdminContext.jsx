@@ -12,8 +12,18 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { getClient, getAdminStatus, isMockMode } from "../data/db.js";
 import { adminRedirectUrl } from "../lib/authRedirect.js";
+import { shouldForceAdminPreview } from "../lib/adminPreview.js";
 
 const MOCK = isMockMode();
+
+// Dev-only screenshot/QA override — see lib/adminPreview.js for the guard
+// itself and .env.example for how to set VITE_ADMIN_PREVIEW. Computed once
+// at module load, same as MOCK above: import.meta.env values are build-time
+// constants, not something that can change while the app is running.
+const ADMIN_PREVIEW = shouldForceAdminPreview({
+  envFlag: import.meta.env.VITE_ADMIN_PREVIEW,
+  isDev: import.meta.env.DEV,
+});
 
 const AdminContext = createContext(null);
 
@@ -21,13 +31,19 @@ export function AdminProvider({ children }) {
   // `loading` covers the initial getSession() round trip so AdminPage can
   // show a neutral "checking…" state instead of flashing "logged out" first.
   // A mock build never has a session to check, so it starts already settled.
+  // Same for an admin-preview build: isAdmin/editMode boot already forced
+  // true and no session check ever runs (see the effect below).
   const [session, setSession] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(!MOCK);
-  const [editMode, setEditMode] = useState(false); // never persisted — always boots false
+  const [isAdmin, setIsAdmin] = useState(ADMIN_PREVIEW);
+  const [loading, setLoading] = useState(!MOCK && !ADMIN_PREVIEW);
+  const [editMode, setEditMode] = useState(ADMIN_PREVIEW); // never persisted — always boots false, except under the preview override
 
   useEffect(() => {
-    if (MOCK) return; // offline preview build: no real auth backend to check
+    // Offline preview build: no real auth backend to check. Admin-preview
+    // build: isAdmin/editMode are already forced true above, and this
+    // deliberately skips getSession()/getAdminStatus() entirely — the
+    // override never touches (or depends on) a real Supabase Auth session.
+    if (MOCK || ADMIN_PREVIEW) return;
 
     let alive = true;
     const client = getClient();
@@ -96,6 +112,7 @@ export function AdminProvider({ children }) {
 
   const value = {
     mock: MOCK,
+    adminPreview: ADMIN_PREVIEW,
     loading,
     session,
     user: session?.user ?? null,
