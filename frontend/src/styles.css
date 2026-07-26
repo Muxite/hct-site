@@ -588,6 +588,33 @@ footer {
   display: block;
 }
 
+/* EditableImage's read-mode wrapper (<span class="editable-image">, see
+   components/EditableImage.jsx) sits between this frame and the <img> above
+   whenever the hero is admin-editable — the img's `max-height: 100%` two
+   rules up resolves against *this* wrapper's height, not `.project-hero`'s,
+   since the wrapper is the img's actual containing block. Left un-heighted,
+   that percentage has nothing definite to resolve against and computes to
+   `none`, so the image renders at full intrinsic size (often far taller than
+   this frame's own 360px) and pushes EditableImage's flex-wrapped "Replace"
+   button out past `.project-hero`/`.paper-hero`'s `overflow: hidden` clip —
+   unreachable on desktop, partly obscured on mobile. Giving the wrapper an
+   explicit `height: 100%` here (of this 360px frame) makes it a real
+   containing block again, so the img's max-height resolves correctly and the
+   Replace button stays inside the visible frame. Excludes
+   `.editable-image--editing` (the "Choose file / filename / Save / Cancel"
+   form shown mid-edit): that state renders no <img>, sizes itself from its
+   own content, and forcing it to this frame's height risks clipping its
+   controls instead — `:not()` keeps the two mutually exclusive rather than
+   relying on source order (see admin.css's `.admin-btn--primary:disabled`
+   comment for why that matters). Scoped to these two hero frames only —
+   People.jsx's person photo and the project-grid cards in SiteHome.jsx's
+   Gallery use EditableImage too, but under their own classes/CSS with
+   different (already-working) sizing, so this rule doesn't reach them. */
+.project-hero .editable-image:not(.editable-image--editing),
+.paper-hero .editable-image:not(.editable-image--editing) {
+  height: 100%;
+}
+
 .project-tagline {
   color: #555;
   font-size: 1.05em;
