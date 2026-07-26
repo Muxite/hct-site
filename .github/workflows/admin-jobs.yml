@@ -55,28 +55,45 @@ jobs:
       # explicitly to point back at the checked-out data/ directory (sources,
       # templates, inputs, state). This mirrors backend/Dockerfile's
       # `ENV HCT_DATA_DIR=/app/data` for the same reason.
+      #
+      # Only non-secret config belongs at job level. SB_SEC_KEY (bypasses all
+      # RLS) and OPENROUTER_API_KEY are set per-step on the two `hct-manager`
+      # steps below instead: a job-level `env:` is visible to *every* step,
+      # including third-party actions and `pip install`, whose build backends
+      # run arbitrary code from PyPI with no lockfile/hashes pinning them.
       HCT_DATA_DIR: ${{ github.workspace }}/backend/data
-      # Repo secrets — configure these under Settings > Secrets and
-      # variables > Actions. Never hardcode real values here.
-      SB_URL: ${{ secrets.SB_URL }}
-      SB_SEC_KEY: ${{ secrets.SB_SEC_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
+      # Third-party actions are pinned to the full commit SHA of the tag named
+      # in the trailing comment: a tag is mutable and can be repointed at new
+      # code by whoever controls the action repo, a SHA cannot.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
+      # No secrets in scope here on purpose — see the job-level `env:` note.
+      # backend/pyproject.toml has no lockfile or hashes, so this step resolves
+      # and executes third-party build-backend code from PyPI.
       - name: Install hct-manager
         run: pip install ./backend
 
+      # Repo secrets — configure these under Settings > Secrets and
+      # variables > Actions. Never hardcode real values here.
       - name: cv-sync — fetch the uploaded CV, re-run the CV pipeline
         if: ${{ inputs.job_type == 'cv-sync' }}
+        env:
+          SB_URL: ${{ secrets.SB_URL }}
+          SB_SEC_KEY: ${{ secrets.SB_SEC_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: hct-manager fetch-cv && hct-manager run
 
       - name: style-regen — regenerate the style profile from source_excerpt
         if: ${{ inputs.job_type == 'style-regen' }}
+        env:
+          SB_URL: ${{ secrets.SB_URL }}
+          SB_SEC_KEY: ${{ secrets.SB_SEC_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: hct-manager style-regen
