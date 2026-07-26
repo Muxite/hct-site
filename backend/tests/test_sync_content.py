@@ -45,11 +45,23 @@ research:
 class FakeSupabase:
     def __init__(self):
         self.replaced: dict[str, tuple[list[dict], str]] = {}
+        self.upserted: dict[str, tuple[list[dict], str | None]] = {}
+        self.inserted_missing: dict[str, tuple[list[dict], str]] = {}
         self.updates: list[tuple[str, dict, dict]] = []
 
     def replace(self, table, rows, *, key):
         rows = list(rows)
         self.replaced[table] = (rows, key)
+        return len(rows)
+
+    def upsert(self, table, rows, *, on_conflict=None):
+        rows = list(rows)
+        self.upserted[table] = (rows, on_conflict)
+        return len(rows)
+
+    def insert_missing(self, table, rows, *, key):
+        rows = list(rows)
+        self.inserted_missing[table] = (rows, key)
         return len(rows)
 
     def update(self, table, values, *, params):
@@ -172,15 +184,20 @@ def test_sync_content_projects_supersedes_research(tmp_path):
         projects_path=_write(tmp_path, "projects.yaml", PROJECTS_YAML),
     )
     assert (n_people, n_research) == (3, 2)  # research came from projects.yaml
-    research_rows, _ = sb.replaced["research"]
+    research_rows, on_conflict = sb.upserted["research"]
+    assert on_conflict == "slug"
     assert [r["slug"] for r in research_rows] == ["brain2speech", "videx"]
+    assert "research" not in sb.replaced
     # project_people replaced with the two brain2speech links.
     pp_rows, pp_key = sb.replaced["project_people"]
     assert pp_key == "project_slug"
     assert len(pp_rows) == 2
     # Stamping: one clear-all PATCH then one PATCH per project with papers.
-    assert sb.updates[0] == ("publications", {"project_slug": None}, {"project_slug": "not.is.null"})
-    stamped = {vals["project_slug"]: params["slug"] for _, vals, params in sb.updates[1:]}
+    # (research's own fill-if-empty PATCHes land in sb.updates too -- see
+    # test_sync_content_projects_fills_only_empty_fields -- so filter by table.)
+    pub_updates = [u for u in sb.updates if u[0] == "publications"]
+    assert pub_updates[0] == ("publications", {"project_slug": None}, {"project_slug": "not.is.null"})
+    stamped = {vals["project_slug"]: params["slug"] for _, vals, params in pub_updates[1:]}
     assert stamped["brain2speech"] == "in.(fels2022-brain-to-speech,fels2021-articulatory-synth)"
     assert stamped["videx"] == "in.(fels2019-videx)"
 
@@ -193,13 +210,22 @@ def test_sync_content_without_projects_uses_research(tmp_path):
         supabase=sb,
         projects_path=tmp_path / "absent.yaml",  # does not exist -> legacy path
     )
-    research_rows, _ = sb.replaced["research"]
+    research_rows, on_conflict = sb.upserted["research"]
+    assert on_conflict == "slug"
     assert [r["title"] for r in research_rows] == ["Brain2Speech", "ViDeX", "Old Project"]
+    assert "research" not in sb.replaced
     assert "project_people" not in sb.replaced
-    assert sb.updates == []
+    # RESEARCH_YAML sets a tagline for the two current projects -> each gets a
+    # fill-if-empty PATCH; Old Project sets none, so no PATCH for it.
+    assert sb.updates == [
+        ("research", {"tagline": "BCIs and 3D biomechanical articulatory speech synthesis"},
+         {"slug": "eq.brain2speech", "tagline": "is.null"}),
+        ("research", {"tagline": "Teaching and learning experiences with video"},
+         {"slug": "eq.videx", "tagline": "is.null"}),
+    ]
 
 
-def test_sync_content_replaces_both_tables(tmp_path):
+def test_sync_content_people_is_insert_missing_not_replace(tmp_path):
     sb = FakeSupabase()
     n_people, n_research = sync_content(
         _write(tmp_path, "people.yaml", PEOPLE_YAML),
@@ -207,16 +233,54 @@ def test_sync_content_replaces_both_tables(tmp_path):
         supabase=sb,
     )
     assert (n_people, n_research) == (3, 3)
-    people_rows, people_key = sb.replaced["people"]
+    people_rows, people_key = sb.inserted_missing["people"]
     assert people_key == "name"
     assert people_rows[1]["kind"] == "alumni"
-    research_rows, research_key = sb.replaced["research"]
-    assert research_key == "title"
+    assert "people" not in sb.replaced
+
+
+def test_sync_content_research_upsert_excludes_fill_fields(tmp_path):
+    sb = FakeSupabase()
+    sync_content(
+        _write(tmp_path, "people.yaml", PEOPLE_YAML),
+        _write(tmp_path, "research.yaml", RESEARCH_YAML),
+        supabase=sb,
+    )
+    research_rows, research_key = sb.upserted["research"]
+    assert research_key == "slug"
+    # tagline/summary/hero_image are never part of the main payload -- an
+    # upsert can't overwrite what it never sends.
+    for row in research_rows:
+        assert "tagline" not in row
+        assert "summary" not in row
+        assert "hero_image" not in row
     assert research_rows[2] == {
-        "title": "Old Project", "slug": "old-project", "tagline": None,
-        "description": None, "summary": None, "link": None, "image": None,
-        "hero_image": None, "kind": "archived", "sort_order": 2,
+        "title": "Old Project", "slug": "old-project",
+        "description": None, "link": None, "image": None,
+        "kind": "archived", "sort_order": 2,
     }
+
+
+def test_sync_content_projects_fills_only_empty_fields(tmp_path):
+    sb = FakeSupabase()
+    sync_content(
+        _write(tmp_path, "people.yaml", PEOPLE_YAML),
+        _write(tmp_path, "research.yaml", RESEARCH_YAML),
+        supabase=sb,
+        projects_path=_write(tmp_path, "projects.yaml", PROJECTS_YAML),
+    )
+    research_rows, _ = sb.upserted["research"]
+    for row in research_rows:
+        assert "summary" not in row and "hero_image" not in row and "tagline" not in row
+    # Brain2Speech sets summary + hero_image (no tagline) in PROJECTS_YAML;
+    # ViDeX sets none of the three -- only brain2speech gets fill PATCHes.
+    research_updates = [u for u in sb.updates if u[0] == "research"]
+    assert research_updates == [
+        ("research", {"summary": "Decoding speech from neural signals."},
+         {"slug": "eq.brain2speech", "summary": "is.null"}),
+        ("research", {"hero_image": "assets/img/b2s.png"},
+         {"slug": "eq.brain2speech", "hero_image": "is.null"}),
+    ]
 
 
 def test_sync_content_validates_before_writing(tmp_path):
@@ -225,7 +289,11 @@ def test_sync_content_validates_before_writing(tmp_path):
     bad = _write(tmp_path, "research.yaml", "research:\n  - title: X\n    status: nope\n")
     with pytest.raises(ContentError):
         sync_content(good, bad, supabase=sb)
-    assert sb.replaced == {}  # nothing written: no half-sync
+    # nothing written: no half-sync
+    assert sb.replaced == {}
+    assert sb.upserted == {}
+    assert sb.inserted_missing == {}
+    assert sb.updates == []
 
 
 def test_people_yaml_round_trip(tmp_path):

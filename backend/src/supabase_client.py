@@ -130,6 +130,52 @@ class SupabaseClient:
         except httpx.HTTPError as exc:
             raise SupabaseError(f"delete from {table} failed: {exc}") from exc
 
+    def insert(self, table: str, rows: Sequence[dict[str, Any]]) -> int:
+        """Plain POST of ``rows`` into ``table`` — no dedupe, no merge.
+
+        The additive half of :meth:`replace` (same request shape, minus the
+        preceding delete), split out so :meth:`insert_missing` — and any other
+        caller that already knows the rows are new — can insert without
+        clearing the table first. If a row collides with an existing unique
+        key, PostgREST rejects the whole batch; callers that aren't sure a
+        row is new should filter first (see :meth:`insert_missing`).
+        """
+
+        rows = list(rows)
+        if not rows:
+            return 0
+        try:
+            resp = self._client.post(
+                f"{self._base}/{table}",
+                headers=self._headers(prefer="return=minimal"),
+                json=rows,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SupabaseError(f"insert into {table} failed: {exc}") from exc
+        return len(rows)
+
+    def insert_missing(
+        self, table: str, rows: Sequence[dict[str, Any]], *, key: str
+    ) -> int:
+        """Additive-only sync: insert only the ``rows`` whose ``key`` isn't
+        already present in ``table``. Returns the number of rows inserted.
+
+        Existing rows are left completely untouched — not just "not deleted"
+        but also not updated — even if the incoming row has different values
+        for the same ``key``. This is the safe re-sync path for tables an
+        admin may edit directly (e.g. ``people``, ``site_content``): a YAML
+        file that's gone stale relative to the DB can only ever add rows, never
+        overwrite what's already there.
+        """
+
+        rows = list(rows)
+        if not rows:
+            return 0
+        existing = {r.get(key) for r in self.select(table, columns=key)}
+        new_rows = [r for r in rows if r.get(key) not in existing]
+        return self.insert(table, new_rows)
+
     def replace(self, table: str, rows: Sequence[dict[str, Any]], *, key: str) -> int:
         """Full sync: clear ``table`` then insert ``rows``. Returns rows written."""
 

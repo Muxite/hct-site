@@ -138,7 +138,7 @@ def _cmd_sync_content(args: argparse.Namespace) -> int:
             projects_path=projects_path if use_projects else None,
         )
         if site_content:
-            sb.upsert("site_content", [c.row() for c in site_content], on_conflict="key")
+            sb.insert_missing("site_content", [c.row() for c in site_content], key="key")
 
     research_src = projects_path.name if use_projects else research_path.name
     print(

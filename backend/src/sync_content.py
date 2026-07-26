@@ -23,12 +23,17 @@ files dropped into the mounted inbox folder:
         image: assets/img/b2s.png
         status: current        # current | archived
 
-Edit a file, re-run ``hct-manager sync-content``, and the tables are replaced
-wholesale (same replace semantics the old HTML migration used) — the YAML is
-the source of truth, list order becomes ``sort_order``. Validation is the
-normal Pydantic contract (:class:`~src.models.Person` /
-:class:`~src.models.ResearchProject`); a typo'd status fails loudly instead of
-landing in the database.
+Edit a file and re-run ``hct-manager sync-content``: list order becomes
+``sort_order`` and validation is the normal Pydantic contract
+(:class:`~src.models.Person` / :class:`~src.models.ResearchProject`) — a
+typo'd status fails loudly instead of landing in the database. The sync is
+**non-destructive**, not a wholesale replace: ``people`` is additive-only (a
+name already in the table is left completely untouched, even if the YAML now
+disagrees with it — see :meth:`~src.supabase_client.SupabaseClient.insert_missing`),
+and ``research``'s ``tagline``/``summary``/``hero_image`` are only filled in
+when still empty, never overwritten. This is so an admin editing those tables
+directly (see the CMS work building on this) can never have their edits
+clobbered by a routine re-sync.
 """
 
 from __future__ import annotations
@@ -188,6 +193,59 @@ def load_projects_yaml(
     return projects, links, membership
 
 
+# Presentational research/project fields that a later admin edit may set
+# directly in Supabase; a YAML re-sync must never overwrite them once they're
+# non-empty, so they're excluded from the main upsert and only "filled" while
+# still null (see _sync_research / _fill_if_empty).
+_RESEARCH_FILL_FIELDS = ("tagline", "summary", "hero_image")
+
+
+def _fill_if_empty(
+    supabase: Any, table: str, key: str, row: dict[str, Any], fields: tuple[str, ...]
+) -> None:
+    """PATCH each of ``fields`` on the row keyed by ``row[key]``, one field at a
+    time, but only where that column is currently null.
+
+    The ``is.null`` half of the filter runs server-side (not a read-then-write
+    check), so there's no race with a concurrent write and no way for this to
+    clobber a value an admin (or an earlier sync/describe run) already set.
+    A field the YAML doesn't set (falsy) is skipped entirely — an empty value
+    never overwrites anything, present or absent.
+    """
+
+    key_val = row[key]
+    for field in fields:
+        value = row.get(field)
+        if not value:
+            continue
+        supabase.update(
+            table,
+            {field: value},
+            params={key: f"eq.{key_val}", field: "is.null"},
+        )
+
+
+def _sync_research(supabase: Any, rows: list[dict[str, Any]]) -> int:
+    """Upsert ``research`` rows without ever overwriting an already-set
+    ``tagline``/``summary``/``hero_image``.
+
+    The main payload (keyed on ``slug``, which every row has via
+    :meth:`~src.models.ResearchProject.row`) omits those three columns
+    entirely, so a re-sync can freely update title/link/image/kind/sort_order
+    while leaving the presentational fields alone; a follow-up fill-if-empty
+    PATCH sets them only where still null. Returns the row count sent.
+    """
+
+    payload = [
+        {k: v for k, v in row.items() if k not in _RESEARCH_FILL_FIELDS}
+        for row in rows
+    ]
+    n = supabase.upsert("research", payload, on_conflict="slug")
+    for row in rows:
+        _fill_if_empty(supabase, "research", "slug", row, _RESEARCH_FILL_FIELDS)
+    return n
+
+
 def _stamp_project_slugs(supabase: Any, membership: list[tuple[str, str]]) -> int:
     """Set ``publications.project_slug`` from ``membership`` (only existing rows).
 
@@ -263,13 +321,19 @@ def sync_content(
     supabase: Any,
     projects_path: str | Path | None = None,
 ) -> tuple[int, int]:
-    """Replace the ``people`` and ``research`` tables from the YAML files.
+    """Sync the ``people`` and ``research`` tables from the YAML files.
 
     When ``projects_path`` is given and exists, it is the project source of
     truth (see docs/PROJECTS.md): the ``research`` table, the ``project_people``
     links, and each paper's ``publications.project_slug`` are all synced from it,
     and ``research_path`` is ignored. Otherwise the legacy ``research.yaml`` path
     is used and no project relationships are written.
+
+    Non-destructive: ``people`` is additive-only (:meth:`SupabaseClient.insert_missing`
+    — a name already present is left untouched), and ``research``'s
+    ``tagline``/``summary``/``hero_image`` are only filled in where still empty
+    (see :func:`_sync_research`). Everything else about a matched ``research``
+    row (title, link, image, kind, sort_order) does still update on every sync.
 
     Returns ``(people_written, research_written)``. Every file is parsed and
     validated *before* the first write, so a broken file never half-syncs.
@@ -282,11 +346,11 @@ def sync_content(
     else:
         research = load_research_yaml(research_path)
 
-    n_people = supabase.replace("people", [p.row() for p in people], key="name")
+    n_people = supabase.insert_missing("people", [p.row() for p in people], key="name")
     if use_projects:
-        n_research = supabase.replace("research", [p.row() for p in projects], key="title")
+        n_research = _sync_research(supabase, [p.row() for p in projects])
         supabase.replace("project_people", [l.row() for l in links], key="project_slug")
         _stamp_project_slugs(supabase, membership)
     else:
-        n_research = supabase.replace("research", [r.row() for r in research], key="title")
+        n_research = _sync_research(supabase, [r.row() for r in research])
     return n_people, n_research

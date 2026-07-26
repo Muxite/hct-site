@@ -135,3 +135,8 @@ Sequenced so all the no-API work lands first (the key is off):
   (consistent with "Supabase is the contract").
 - **`description` retirement**: kept until `summary_plain` is populated
   everywhere, then dropped.
+- **`sync-content` is fill-if-empty for `tagline`/`summary`/`hero_image`**: a
+  re-sync only sets these once they're still null server-side, so after the
+  first sync a `viewer.py` YAML edit to `research.tagline` (its only
+  YAML-backed field among the three) silently stops landing — accepted, since
+  the point is that an admin's value must never be clobbered by stale YAML.

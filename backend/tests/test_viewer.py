@@ -1,8 +1,8 @@
 """Unit tests for the localhost admin viewer (FastAPI, no network).
 
-A fake Supabase client records upsert/replace calls and serves canned rows; the
-YAML files live under ``tmp_path``. Consistent with the suite's rule that the
-network is always mocked.
+A fake Supabase client records upsert/replace/insert_missing/update calls and
+serves canned rows; the YAML files live under ``tmp_path``. Consistent with the
+suite's rule that the network is always mocked.
 """
 
 from __future__ import annotations
@@ -93,6 +93,17 @@ class FakeSupabase:
         self.calls.append(("replace", table, rows, key))
         self.data[table] = rows
         return len(rows)
+
+    def insert_missing(self, table, rows, *, key):
+        rows = list(rows)
+        self.calls.append(("insert_missing", table, rows, key))
+        existing = {r.get(key) for r in self.data.get(table, [])}
+        new_rows = [r for r in rows if r.get(key) not in existing]
+        self.data.setdefault(table, []).extend(new_rows)
+        return len(new_rows)
+
+    def update(self, table, values, *, params):
+        self.calls.append(("update", table, values, params))
 
     def delete_all(self, table, *, key):
         self.data[table] = []
@@ -197,8 +208,9 @@ def test_edit_person_writes_yaml_and_resyncs(env):
     text = paths["people"].read_text(encoding="utf-8")
     assert "Postdoc" in text
     assert "# people header — keep me" in text
-    # and the people table was replaced (re-synced).
-    assert sb.calls_for("replace", "people")
+    # and the people table was re-synced (additive-only: Alice already exists,
+    # so her Supabase row is left as-is even though the YAML role just changed).
+    assert sb.calls_for("insert_missing", "people")
     people = {p.name: p for p in load_people_yaml(paths["people"])}
     assert people["Alice"].role == "Postdoc"
 
@@ -212,7 +224,7 @@ def test_edit_person_blank_name_rejected_no_write(env):
     )
     assert resp.status_code == 400
     assert paths["people"].read_text(encoding="utf-8") == before  # untouched
-    assert not sb.calls_for("replace", "people")
+    assert not sb.calls_for("insert_missing", "people")
 
 
 def test_edit_person_bad_status_rejected(env):
@@ -224,7 +236,7 @@ def test_edit_person_bad_status_rejected(env):
     )
     assert resp.status_code == 400
     assert paths["people"].read_text(encoding="utf-8") == before
-    assert not sb.calls_for("replace", "people")
+    assert not sb.calls_for("insert_missing", "people")
 
 
 def test_add_person(env):
@@ -236,7 +248,7 @@ def test_add_person(env):
     assert resp.status_code == 303
     names = [p.name for p in load_people_yaml(paths["people"])]
     assert names == ["Alice", "Bob", "Carol"]
-    assert sb.calls_for("replace", "people")
+    assert sb.calls_for("insert_missing", "people")
 
 
 def test_add_duplicate_person_rejected(env):
@@ -255,7 +267,7 @@ def test_delete_person(env):
     assert resp.status_code == 303
     names = [p.name for p in load_people_yaml(paths["people"])]
     assert names == ["Alice"]
-    assert sb.calls_for("replace", "people")
+    assert sb.calls_for("insert_missing", "people")
 
 
 def test_publications_not_addable(env):

@@ -155,6 +155,7 @@ class _FakeSupabase:
         self._rows = rows
         self.replaced = {}
         self.upserted = {}
+        self.inserted_missing = {}
 
     def __enter__(self):
         return self
@@ -173,6 +174,11 @@ class _FakeSupabase:
     def upsert(self, table, rows, *, on_conflict=None):
         rows = list(rows)
         self.upserted[table] = rows
+        return len(rows)
+
+    def insert_missing(self, table, rows, *, key):
+        rows = list(rows)
+        self.inserted_missing.setdefault(table, []).extend(rows)
         return len(rows)
 
 
@@ -205,9 +211,12 @@ def test_sync_content_command(monkeypatch, capsys, tmp_path):
     ])
     assert rc == 0
     assert "2 people" in capsys.readouterr().out
-    assert sb.replaced["people"][1]["kind"] == "alumni"
-    assert sb.replaced["research"][1]["kind"] == "archived"
-    keys = {r["key"] for r in sb.upserted["site_content"]}
+    # people + site_content are additive-only (insert_missing); research still
+    # upserts (title/link/etc. keep updating, only tagline/summary/hero_image
+    # are fill-if-empty -- see test_sync_content.py for that behavior).
+    assert sb.inserted_missing["people"][1]["kind"] == "alumni"
+    assert sb.upserted["research"][1]["kind"] == "archived"
+    keys = {r["key"] for r in sb.inserted_missing["site_content"]}
     assert "vision" in keys and "site_meta" in keys
 
 
