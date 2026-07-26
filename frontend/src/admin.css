@@ -71,6 +71,54 @@
   color: #fff;
 }
 
+/* `.admin-btn:disabled` above sets `color: #999` and, at (0,2,0), always
+   outranks the bare `.admin-btn--primary` (0,1,0) regardless of source
+   order — so a disabled primary button (real /admin's "Upload & sync now" /
+   "Save exemplar" before their form is valid, Classic-theme People.jsx's
+   "Add person" before a name is typed — Classic wraps its content in
+   `.vlab-gallery` but never adds the `.vlab` class, so it hits these base
+   rules rather than the `.vlab`-scoped ones below) lost its white text back
+   to `#999` while keeping this rule's blue `#1a56db` fill: ~2.17:1 contrast
+   against that fill, flat in both light and dark OS scheme since nothing
+   here varies with `prefers-color-scheme`. Same fix as `.vlab
+   .admin-btn--primary:disabled` further down (same root cause, scoped to the
+   Gallery homepage): restate `color: #fff` and dim with `opacity` instead of
+   losing the text color outright — measured in a real browser (not just
+   computed by hand) against the page's own background (this isn't
+   `.vlab`-scoped, so it composites against styles.css's plain white/
+   `#0d0e12` body, not a themed surface), this comes out to ~2.53:1 in light
+   OS scheme, both a real improvement over ~2.17:1 given the same
+   "opacity-dimmed white text" treatment.
+
+   Dark OS scheme measured ~6:1 during verification, but don't read that as
+   this rule being better in the dark — it's inflated by a separate,
+   pre-existing bug this task didn't touch: `@media (prefers-color-scheme:
+   dark) { .admin-btn { background: #16171b; ... } }` below shares
+   `.admin-btn--primary`'s exact specificity (0,1,0) and is declared later, so
+   in real dark-OS rendering it wins and *every* primary button — enabled or
+   disabled — loses its blue fill to that dark gray, not just this disabled
+   state. Confirmed via `getComputedStyle` on both a disabled ("Upload & sync
+   now") and enabled ("Save exemplar") primary button in dark OS scheme: both
+   report `backgroundColor: rgb(22, 23, 27)`, never the declared `#1a56db`.
+   The ~6:1 this rule measures at is against that (accidental) near-black
+   fill, not the intended blue one — if that separate bug were fixed, this
+   rule's own real dark-mode number would drop back down to roughly the
+   ~3.65:1 hand-computed against the *intended* blue fill. Flagging for a
+   follow-up task rather than fixing here since it's out of scope (it isn't
+   disabled-state-specific and reaches every primary button in the base,
+   non-`.vlab` chrome).
+
+   Deliberately targets the compound `.admin-btn.admin-btn--primary` — every
+   primary button in the app already carries both classes together (see the
+   JSX call sites) — rather than relying on source order the way the `.vlab`
+   rule below has to: at (0,3,0) this strictly outranks `.admin-btn:disabled`'s
+   (0,2,0) by construction, so it wins regardless of where either rule sits
+   in the file. */
+.admin-btn.admin-btn--primary:disabled {
+  color: #fff;
+  opacity: 0.55;
+}
+
 .admin-status {
   margin: 1em 0;
 }
@@ -504,9 +552,25 @@ textarea.editable-text__field {
   color: #fff;
 }
 
-/* `.vlab .admin-btn:disabled` above sets `color: var(--v-faint)`; adding
-   `:disabled` to a selector already matched here (0,2,1 vs this rule's 0,2,0)
-   wins on specificity regardless of source order, so a disabled primary
+/* Correction: this comment previously claimed `.vlab .admin-btn:disabled`
+   (above) and this rule were (0,2,1) vs (0,2,0) — that's wrong on both
+   sides. Each class/pseudo-class counts equally toward the middle
+   specificity column, so `.vlab .admin-btn:disabled` is `.vlab`+`.admin-btn`+
+   `:disabled` = (0,3,0), and this rule is `.vlab`+`.admin-btn--primary`+
+   `:disabled` = (0,3,0) too — a genuine tie. This rule only wins because it's
+   declared *after* `.vlab .admin-btn:disabled` above; source order is doing
+   the work here, not specificity. That makes it fragile: reordering this
+   file so `.vlab .admin-btn:disabled` came after this rule instead would
+   silently flip which one wins, with no specificity difference to catch the
+   mistake. Do not reorder these two rules. (The base, non-`.vlab`
+   equivalent above this section — `.admin-btn.admin-btn--primary:disabled`
+   — sidesteps this by using a selector that's inherently more specific
+   instead of relying on order; that pattern would remove the fragility here
+   too, but this rule is left as originally committed and just documented
+   accurately.)
+
+   Original reasoning, still correct: `.vlab .admin-btn:disabled` above sets
+   `color: var(--v-faint)`; without this rule winning, a disabled primary
    button — "Add person" before a name is typed, "Save exemplar"/"Upload &
    sync now" mid-validation — was losing its white text back to `--v-faint`
    while keeping this rule's blue background. In Signal-dark `--v-faint`
