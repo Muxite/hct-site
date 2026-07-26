@@ -181,6 +181,49 @@ def test_style_profile_is_NOT_sent_during_extraction(cfg, tmp_path):
     assert all("terse, active voice" not in u for u in captured)
 
 
+class _FakeStyleSupabase:
+    """Minimal select()-only fake for load_style_profile's Supabase-first read."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def select(self, table, *, params=None, **kw):
+        assert table == "style_profile"
+        assert params == {"id": "eq.default"}
+        return self._rows
+
+
+def test_load_style_profile_prefers_supabase_when_present(tmp_path):
+    (tmp_path / "style_profile.txt").write_text("local fallback text", encoding="utf-8")
+    sb = _FakeStyleSupabase([{"id": "default", "profile_text": "Crisp, active voice."}])
+    assert (
+        orchestrate.load_style_profile(tmp_path, supabase=sb) == "Crisp, active voice."
+    )
+
+
+def test_load_style_profile_falls_back_to_file_when_supabase_row_missing(tmp_path):
+    (tmp_path / "style_profile.txt").write_text("local fallback text", encoding="utf-8")
+    sb = _FakeStyleSupabase([])
+    assert orchestrate.load_style_profile(tmp_path, supabase=sb) == "local fallback text"
+
+
+def test_load_style_profile_falls_back_to_file_when_profile_text_empty(tmp_path):
+    (tmp_path / "style_profile.txt").write_text("local fallback text", encoding="utf-8")
+    sb = _FakeStyleSupabase([{"id": "default", "profile_text": "  "}])
+    assert orchestrate.load_style_profile(tmp_path, supabase=sb) == "local fallback text"
+
+
+def test_load_style_profile_falls_back_to_file_without_supabase(tmp_path):
+    (tmp_path / "style_profile.txt").write_text("local fallback text", encoding="utf-8")
+    assert orchestrate.load_style_profile(tmp_path) == "local fallback text"
+
+
+def test_load_style_profile_empty_when_nothing_available(tmp_path):
+    sb = _FakeStyleSupabase([])
+    assert orchestrate.load_style_profile(tmp_path, supabase=sb) == ""
+    assert orchestrate.load_style_profile(None, supabase=sb) == ""
+
+
 def test_load_sources_validates(tmp_path):
     bad = tmp_path / "s.yaml"
     bad.write_text("sources:\n  - {member: x}\n", encoding="utf-8")

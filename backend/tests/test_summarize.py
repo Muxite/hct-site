@@ -62,6 +62,30 @@ def test_prompt_without_context_warns_not_to_invent():
     assert "do not invent" in prompt
 
 
+def test_voice_profile_appends_distinct_block_without_altering_style_profile():
+    # voice_profile is the admin's lab-voice calibration text (style_profile.
+    # profile_text) -- a genuinely separate prompt block from style_profile,
+    # the audience-style (A/B/C/D/E) parameter. Supplying it must not change,
+    # remove, or overwrite the style instruction already in the prompt.
+    base = build_summary_prompt(_pub(), style_profile=STYLES["C"], context="We trained a CNN.")
+    with_voice = build_summary_prompt(
+        _pub(), style_profile=STYLES["C"], voice_profile="Crisp, active voice; short sentences.",
+        context="We trained a CNN.",
+    )
+    assert with_voice != base
+    assert "Crisp, active voice; short sentences." in with_voice
+    assert "Crisp, active voice; short sentences." not in base
+    # The style block is untouched -- same content, same leading position.
+    style_prefix = f"Write the overview in this style:\n{STYLES['C'].strip()}\n"
+    assert base.startswith(style_prefix)
+    assert with_voice.startswith(style_prefix)
+
+
+def test_voice_profile_omitted_when_blank():
+    prompt = build_summary_prompt(_pub(), style_profile=STYLES["A"], voice_profile="   ", context="")
+    assert "writing voice" not in prompt.lower()
+
+
 # --------------------------------------------------------------------------- #
 # summarize_paper
 # --------------------------------------------------------------------------- #
@@ -74,6 +98,17 @@ def test_summarize_paper_sanitizes_and_passes_style():
     assert STYLES["B"] in llm.calls[0]["user"]
     assert llm.calls[0]["json_mode"] is False
     assert llm.calls[0]["label"] == "summary"
+
+
+def test_summarize_paper_passes_voice_profile_alongside_style():
+    llm = FakeLLM("A steady overview.")
+    summarize_paper(
+        _pub(), llm=llm, style="B", voice_profile="Crisp, active voice.",
+        context="A CNN improves accuracy.",
+    )
+    user = llm.calls[0]["user"]
+    assert STYLES["B"] in user  # audience style still present
+    assert "Crisp, active voice." in user  # voice profile also present
 
 
 # --------------------------------------------------------------------------- #

@@ -342,3 +342,74 @@ textarea.editable-text__field {
     color: #aaa;
   }
 }
+
+/* Writing-voice exemplar + style-regen trigger (AdminPage.jsx). Mirrors
+   .admin-cv's layout (border-topped section, wrapping control row); the
+   textarea and the read-only profile_text block share one column width
+   rather than the .admin-cv__controls row's inline-flex buttons, since both
+   hold multi-line text. Every class here also needs an entry in the
+   dark-mode block below if it sets a colour. */
+.admin-style {
+  margin: 2em 0;
+  padding-top: 1.5em;
+  border-top: 1px solid #e5e5e5;
+}
+
+.admin-style__heading {
+  margin: 0 0 0.4em;
+  font-size: 1.1em;
+}
+
+.admin-style__subheading {
+  margin: 1.5em 0 0.4em;
+  font-size: 0.95em;
+}
+
+.admin-style__textarea {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin-top: 1em;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.admin-style__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 1em;
+}
+
+.admin-style__profile {
+  margin: 0;
+  padding: 10px 12px;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fafafa;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .admin-style {
+    border-top-color: #2a2b30;
+  }
+
+  .admin-style__textarea {
+    background: #1a1b20;
+    border-color: #333;
+  }
+
+  .admin-style__profile {
+    background: #16171b;
+    border-color: #333;
+  }
+}

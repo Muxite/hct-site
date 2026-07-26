@@ -235,7 +235,6 @@ def _cmd_describe(args: argparse.Namespace) -> int:
 
     cfg = Config.from_env()
     tracker = UsageTracker(label="describe")
-    style_profile = load_style_profile(cfg.state_dir)
     system = describe.load_describe_system_prompt(cfg.templates_dir)
 
     fetch = None
@@ -245,6 +244,9 @@ def _cmd_describe(args: argparse.Namespace) -> int:
         fetch = lambda link: ujin.scrape(link, mode="article").text  # noqa: E731
 
     with _make_supabase(cfg) as sb:
+        # Supabase-first (needed for the CI job, which has no persistent
+        # state/); falls back to the local file for offline/dev use.
+        style_profile = load_style_profile(cfg.state_dir, supabase=sb)
         rows = sb.select("publications")
         ps = PublicationSet(publications=[_row_to_publication(r) for r in rows])
         try:

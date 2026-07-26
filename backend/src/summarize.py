@@ -101,10 +101,23 @@ def sanitize_summary(text: str) -> str:
     return text.strip()
 
 
-def build_summary_prompt(pub: Publication, *, style_profile: str, context: str = "") -> str:
-    """Build the user prompt for one paper + style + grounding context."""
+def build_summary_prompt(
+    pub: Publication, *, style_profile: str, voice_profile: str = "", context: str = ""
+) -> str:
+    """Build the user prompt for one paper + style + grounding context.
+
+    ``style_profile`` is the audience-facing writing style (a :data:`STYLES`
+    key's text or a literal profile, e.g. "three labeled beats") - what shape
+    the overview takes. ``voice_profile`` is a separate, optional lab-voice
+    calibration block (``style_profile.profile_text`` from the admin's pasted
+    exemplar, see ``src/style.py``/``hct-manager style-regen``) - how the lab
+    sounds. The two are independent prompt blocks; supplying one never alters
+    or overwrites the other's instruction.
+    """
 
     parts: list[str] = [f"Write the overview in this style:\n{style_profile.strip()}\n"]
+    if voice_profile.strip():
+        parts.append(f"Match this lab's writing voice:\n{voice_profile.strip()}\n")
     facts = [
         f"Title: {pub.title}",
         f"Authors: {'; '.join(pub.authors)}",
@@ -128,6 +141,7 @@ def summarize_paper(
     *,
     llm: SupportsComplete,
     style: str,
+    voice_profile: str = "",
     context: str = "",
     system_prompt: str | None = None,
     max_tokens: int = 400,
@@ -135,12 +149,17 @@ def summarize_paper(
 ) -> str:
     """Generate one sanitized overview of ``pub`` in ``style`` from ``context``.
 
-    ``style`` is a key in :data:`STYLES` (or a literal profile). Output is capped
-    low - these are brief overviews - and run through :func:`sanitize_summary`.
+    ``style`` is a key in :data:`STYLES` (or a literal profile). ``voice_profile``
+    is the separate, optional lab-voice calibration text (see
+    :func:`build_summary_prompt`) - distinct from ``style``, which only picks
+    the audience-facing shape. Output is capped low - these are brief overviews
+    - and run through :func:`sanitize_summary`.
     """
 
     system = system_prompt if system_prompt is not None else SUMMARY_SYSTEM
-    user = build_summary_prompt(pub, style_profile=resolve_style(style), context=context)
+    user = build_summary_prompt(
+        pub, style_profile=resolve_style(style), voice_profile=voice_profile, context=context
+    )
     raw = llm.complete(
         system=system, user=user, json_mode=False, max_tokens=max_tokens, label=label
     )

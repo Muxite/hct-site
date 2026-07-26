@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAdmin } from "../context/AdminContext.jsx";
 import { uploadToCvUploads } from "../data/storage.js";
 import { useJobRunner, runLabel } from "../data/jobs.js";
+import { getStyleProfile, updateStyleProfileExcerpt } from "../data/db.js";
 import { isDocxFile } from "../lib/format.js";
 import "../admin.css";
 
 // /admin — login/logout + admin-status detection, plus the CV upload and its
-// "Sync now" CI trigger. The exemplar/style-calibration UI is a later task;
-// it reuses the same job plumbing with job type "style-regen".
+// "Sync now" CI trigger, and the writing-voice exemplar + style-regen trigger.
 export default function AdminPage() {
   const { mock, loading, session, isAdmin, editMode, setEditMode, signIn, signOut } = useAdmin();
 
@@ -60,6 +60,7 @@ export default function AdminPage() {
             Edit mode
           </label>
           <CvSyncSection accessToken={session.access_token} />
+          <StyleProfileSection accessToken={session.access_token} />
         </>
       ) : (
         <p className="state">
@@ -181,6 +182,175 @@ function CvSyncSection({ accessToken }) {
       {phase === "error" && error && (
         <p className="admin-status admin-status--error" role="alert">
           Couldn't start the job — {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+// Writing-voice exemplar + regenerate trigger. The textarea is a direct
+// authenticated write to `style_profile.source_excerpt` (updateStyleProfileExcerpt
+// — no CI involved, same as EditableText's plain Supabase writes); "Regenerate
+// style guide" asks CI to run `hct-manager style-regen`, which distills the
+// saved excerpt into `style_profile.profile_text` via `src/style.py`'s
+// analyze_style() (same job plumbing as CvSyncSection above, job type
+// "style-regen"). `profile_text` then feeds into describe.py/summarize.py as a
+// distinct `voice_profile` block, kept separate from summarize.py's own
+// audience-style (A/B/C/D/E) parameter — see backend/src/summarize.py.
+function StyleProfileSection({ accessToken }) {
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [excerpt, setExcerpt] = useState("");
+  const [profileText, setProfileText] = useState("");
+  const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
+  const [saveError, setSaveError] = useState("");
+  const { phase, run, error, start } = useJobRunner(accessToken);
+
+  const busy = phase === "triggering" || phase === "queued" || phase === "running";
+
+  useEffect(() => {
+    let alive = true;
+    getStyleProfile()
+      .then((row) => {
+        if (!alive) return;
+        setExcerpt(row?.source_excerpt || "");
+        setProfileText(row?.profile_text || "");
+      })
+      .catch((err) => {
+        if (alive) setLoadError(String(err?.message || err));
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Once a style-regen run completes, pull the freshly written profile_text
+  // back in — it was generated server-side, so nothing else refreshes it.
+  useEffect(() => {
+    if (phase !== "done") return;
+    let alive = true;
+    getStyleProfile()
+      .then((row) => {
+        if (alive) setProfileText(row?.profile_text || "");
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [phase]);
+
+  async function handleSave() {
+    if (saveStatus === "saving") return;
+    setSaveStatus("saving");
+    setSaveError("");
+    try {
+      await updateStyleProfileExcerpt(excerpt);
+      setSaveStatus("saved");
+    } catch (err) {
+      setSaveStatus("error");
+      setSaveError(String(err?.message || err));
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="admin-style">
+        <h2 className="admin-style__heading">Writing voice</h2>
+        <p className="state">Loading…</p>
+      </section>
+    );
+  }
+
+  const statusText = runLabel(phase, run);
+
+  return (
+    <section className="admin-style">
+      <h2 className="admin-style__heading">Writing voice</h2>
+      <p className="admin-caption">
+        Paste text that sounds like the lab (a paper description, an email, a bio),
+        save it, then regenerate the style guide the AI matches when writing
+        descriptions and summaries.
+      </p>
+
+      {loadError && (
+        <p className="admin-status admin-status--error" role="alert">
+          Couldn't load the saved exemplar — {loadError}
+        </p>
+      )}
+
+      <textarea
+        className="admin-style__textarea"
+        value={excerpt}
+        onChange={(e) => {
+          setExcerpt(e.target.value);
+          setSaveStatus("idle");
+        }}
+        placeholder="Paste an example of the lab's writing here…"
+        rows={8}
+      />
+
+      <div className="admin-style__controls">
+        <button
+          type="button"
+          className="admin-btn admin-btn--primary"
+          onClick={handleSave}
+          disabled={saveStatus === "saving"}
+        >
+          {saveStatus === "saving" ? "Saving…" : "Save exemplar"}
+        </button>
+        <button
+          type="button"
+          className="admin-btn"
+          onClick={() => start("style-regen")}
+          disabled={busy || !excerpt.trim()}
+        >
+          {busy ? "Working…" : "Regenerate style guide"}
+        </button>
+      </div>
+
+      {saveStatus === "saved" && (
+        <p className="admin-status admin-status--done">Saved.</p>
+      )}
+      {saveStatus === "error" && (
+        <p className="admin-status admin-status--error" role="alert">
+          Couldn't save — {saveError}
+        </p>
+      )}
+
+      {statusText && (
+        <p
+          className={`admin-status${
+            phase === "done" ? " admin-status--done" : ""
+          }${phase === "failed" ? " admin-status--error" : ""}`}
+          role="status"
+        >
+          {statusText}
+          {run?.html_url && (
+            <>
+              {" "}
+              <a href={run.html_url} target="_blank" rel="noreferrer">
+                View the run
+              </a>
+            </>
+          )}
+        </p>
+      )}
+
+      {phase === "error" && error && (
+        <p className="admin-status admin-status--error" role="alert">
+          Couldn't start the job — {error}
+        </p>
+      )}
+
+      <h3 className="admin-style__subheading">Current style guide</h3>
+      {profileText ? (
+        <pre className="admin-style__profile">{profileText}</pre>
+      ) : (
+        <p className="admin-caption">
+          Not generated yet — save an exemplar above, then regenerate.
         </p>
       )}
     </section>

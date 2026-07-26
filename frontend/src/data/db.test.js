@@ -15,6 +15,8 @@ import {
   deletePerson,
   updateProject,
   updatePublication,
+  getStyleProfile,
+  updateStyleProfileExcerpt,
 } from "./db.js";
 
 function samplesClient(result) {
@@ -287,6 +289,45 @@ test("updatePerson throws on a Supabase error", async () => {
   const error = { message: "not authorized" };
   const { client } = writeSelectClient({ data: null, error });
   await assert.rejects(updatePerson("Jane Doe", { role: "x" }, client), error);
+});
+
+// --- getStyleProfile / updateStyleProfileExcerpt (exemplar/style calibration) -
+test("getStyleProfile returns the row filtered to the fixed 'default' id", async () => {
+  const row = { source_excerpt: "Some raw text.", profile_text: "Crisp, active voice." };
+  const { client, calls } = singleClient({ data: row, error: null });
+  const result = await getStyleProfile(client);
+  assert.deepEqual(result, row);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "eq"),
+    ["eq", "id", "default"],
+  );
+});
+
+test("getStyleProfile returns null when no row exists yet", async () => {
+  const { client } = singleClient({ data: null, error: null });
+  assert.equal(await getStyleProfile(client), null);
+});
+
+test("getStyleProfile throws on a Supabase error", async () => {
+  const error = { message: "not authorized" };
+  const { client } = singleClient({ data: null, error });
+  await assert.rejects(getStyleProfile(client), error);
+});
+
+test("updateStyleProfileExcerpt upserts the fixed 'default' row's source_excerpt", async () => {
+  const { client, calls } = upsertClient({ error: null });
+  await updateStyleProfileExcerpt("New exemplar text.", client);
+  assert.deepEqual(calls[0], [
+    "upsert",
+    { id: "default", source_excerpt: "New exemplar text." },
+    { onConflict: "id" },
+  ]);
+});
+
+test("updateStyleProfileExcerpt throws on a Supabase error", async () => {
+  const error = { message: "not authorized" };
+  const { client } = upsertClient({ error });
+  await assert.rejects(updateStyleProfileExcerpt("x", client), error);
 });
 
 // --- updateProject (Gallery's project-hero-image CRUD) ------------------------

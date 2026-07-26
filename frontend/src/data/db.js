@@ -242,6 +242,37 @@ export async function updateSiteContent(key, value, client = getClient()) {
   if (error) throw error;
 }
 
+/**
+ * The admin's saved writing-voice exemplar row: `{ source_excerpt, profile_text }`
+ * (or null if the row doesn't exist yet — the backend/admin UI creates it lazily).
+ * Single row keyed `id = 'default'` (see `db/schema.sql`'s `style_profile` table);
+ * admin-only under RLS, so this throws for anyone not on the `admins` allowlist.
+ */
+export async function getStyleProfile(client = getClient()) {
+  const { data, error } = await client
+    .from(TABLES.styleProfile)
+    .select("source_excerpt,profile_text")
+    .eq("id", "default")
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+/**
+ * Save the admin's pasted/uploaded exemplar text as `style_profile.source_excerpt`
+ * — a direct authenticated write (no CI job involved). Upserts the fixed
+ * `id: 'default'` row so this works the first time too, before any
+ * `hct-manager style-regen` run has ever created it. Regenerating
+ * `profile_text` from this excerpt is a separate step — see `jobs.js`'s
+ * `triggerJob('style-regen', ...)`.
+ */
+export async function updateStyleProfileExcerpt(text, client = getClient()) {
+  const { error } = await client
+    .from(TABLES.styleProfile)
+    .upsert({ id: "default", source_excerpt: text }, { onConflict: "id" });
+  if (error) throw error;
+}
+
 const PERSON_COLS = "name,role,email,photo,bio,kind,sort_order";
 
 /**

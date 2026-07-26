@@ -101,8 +101,25 @@ def load_examples(examples_dir: str | Path | None) -> str:
     ).strip()
 
 
-def load_style_profile(state_dir: str | Path | None) -> str:
-    """Read the saved style profile if present (produced by analyze-style)."""
+def load_style_profile(state_dir: str | Path | None, *, supabase: Any = None) -> str:
+    """Load the saved style/voice profile: Supabase first, local file fallback.
+
+    ``style_profile.profile_text`` (written by ``hct-manager style-regen`` from
+    the admin's exemplar text — see ``src/style.py``) is the source of truth
+    when ``supabase`` is given and the row has a non-empty ``profile_text``;
+    this is what lets the CI job (a fresh checkout with no persistent
+    ``state/``) pick it up. The local ``state/style_profile.txt`` file
+    (written by ``analyze-style --save``) is only consulted when ``supabase``
+    is not passed, the row is missing, or ``profile_text`` is empty — i.e.
+    offline/dev use.
+    """
+
+    if supabase is not None:
+        rows = supabase.select("style_profile", params={"id": "eq.default"})
+        if rows:
+            profile_text = (rows[0].get("profile_text") or "").strip()
+            if profile_text:
+                return profile_text
 
     if not state_dir:
         return ""

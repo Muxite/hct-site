@@ -218,6 +218,60 @@ class _FakeSupabase:
         self.updated.append((table, dict(values), dict(params)))
 
 
+def test_describe_command_loads_style_profile_from_supabase(monkeypatch, capsys):
+    # load_style_profile must run inside the `with _make_supabase(...)` block
+    # so it can pass supabase=sb -- the CI job has no persistent state/, so
+    # style_profile.profile_text has to come from Supabase there.
+    _patch_common(monkeypatch)
+    rows = {
+        "publications": [{"slug": "a", "title": "T", "authors": ["X"], "year": 2022}],
+        "style_profile": [{"id": "default", "profile_text": "Crisp, active voice."}],
+    }
+    sb = _FakeSupabase(rows)
+    monkeypatch.setattr(cli, "_make_supabase", lambda cfg: sb)
+
+    captured = {}
+
+    def fake_describe_set(ps, *, llm, system_prompt, style_profile, fetch, only_missing, limit):
+        captured["style_profile"] = style_profile
+        return 0
+
+    monkeypatch.setattr("src.describe.describe_set", fake_describe_set)
+
+    rc = cli.main(["describe"])
+    assert rc == 0
+    assert captured["style_profile"] == "Crisp, active voice."
+
+
+def test_describe_command_falls_back_to_file_when_supabase_row_missing(monkeypatch, capsys, tmp_path):
+    _patch_common(monkeypatch)
+    monkeypatch.setattr(
+        Config, "from_env",
+        classmethod(lambda cls: Config(openrouter_api_key="k", data_dir=tmp_path)),
+    )
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "state" / "style_profile.txt").write_text("local voice", encoding="utf-8")
+
+    rows = {
+        "publications": [{"slug": "a", "title": "T", "authors": ["X"], "year": 2022}],
+        "style_profile": [],
+    }
+    sb = _FakeSupabase(rows)
+    monkeypatch.setattr(cli, "_make_supabase", lambda cfg: sb)
+
+    captured = {}
+
+    def fake_describe_set(ps, *, llm, system_prompt, style_profile, fetch, only_missing, limit):
+        captured["style_profile"] = style_profile
+        return 0
+
+    monkeypatch.setattr("src.describe.describe_set", fake_describe_set)
+
+    rc = cli.main(["describe"])
+    assert rc == 0
+    assert captured["style_profile"] == "local voice"
+
+
 def test_sync_content_command(monkeypatch, capsys, tmp_path):
     _patch_common(monkeypatch)
     (tmp_path / "people.yaml").write_text(

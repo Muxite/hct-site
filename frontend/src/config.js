@@ -14,6 +14,7 @@ export const TABLES = {
   siteContent: "site_content",
   samples: "paper_samples",
   admins: "admins",
+  styleProfile: "style_profile",
 };
 
 // site_content keys the page renders. `site_meta` holds the header/nav; the rest
