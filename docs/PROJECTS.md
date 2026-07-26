@@ -139,8 +139,24 @@ Sequenced so all the no-API work lands first (the key is off):
   `tagline`/`summary`/`hero_image`** (and the analogous `people`
   `role`/`email`/`photo`/`bio`): a routine re-sync of `people.yaml`/
   `research.yaml`/`projects.yaml` only sets these once they're still null
-  server-side, so it can never clobber a value an admin sets directly through
-  a future browser CMS. This applies to the CLI/automated resync path only —
-  `viewer.py`'s own edit/add/delete routes push straight to Supabase with a
-  forced single-row write (see `_push_yaml_edit` et al. in `viewer.py`), so an
-  explicit maintainer edit through that tool always lands, `tagline` included.
+  server-side, so a routine resync can't clobber a value an admin sets
+  directly through the browser CMS (once built) **for exactly this field
+  set**. This applies to the CLI/automated resync path only — `viewer.py`'s
+  own edit/add/delete routes push straight to Supabase with a forced
+  single-row write (see `_push_yaml_edit` et al. in `viewer.py`), so an
+  explicit maintainer edit through that tool always lands, `tagline`
+  included.
+- **Known gap: `people.kind` (current/alumni status) is NOT in the
+  fill-if-empty set**, unlike the fields above — `sync_content.py`'s
+  `_PEOPLE_FILL_FIELDS` always force-upserts it from `people.yaml`, matching
+  its role as the YAML's own way to flip someone to alumni via a bulk resync.
+  But the admin-CMS plan (`docs/superpowers/plans/...` Task 7) has Sidney
+  toggle current/alumni status directly in the browser too — once that ships,
+  a routine `sync-content` run could silently revert his toggle back to
+  whatever `people.yaml` currently says. Adding `kind` to the fill-if-empty
+  set isn't a clean fix either: it would break `people.yaml`'s own
+  bulk-flip-to-alumni workflow for anyone already synced once. Unresolved;
+  whoever builds the CMS's status toggle should either accept this as a
+  known limitation (document it in the admin UI) or design a real
+  reconciliation mechanism (e.g. an explicit "last changed by" marker) before
+  relying on it.
