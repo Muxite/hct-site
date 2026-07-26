@@ -721,6 +721,23 @@ footer a[href="#/admin"] {
    1.01:1 and 2.93:1. Every ratio below was measured in a real browser with
    the audit's own compositing maths, not computed from the hex by hand. */
 @media (prefers-color-scheme: dark) {
+  /* Every ratio in this block was measured against a body that actually goes
+     dark — but `html, body` had no dark-scheme override anywhere in this
+     file's committed history (confirmed via `git log --all`), only in a
+     separate, still-uncommitted pass sitting in this same working tree.
+     Without this rule, the rest of this block is inert on the real deployed
+     site: `.load-more` and `.project-hero`/`.paper-hero` set their own
+     background so they'd still work, but `footer`/`.pub strike`/
+     `.breadcrumb a`/`.prose a` only restate *text* color, and the surrounding
+     page would stay white underneath them — measured 2.32:1 and 2.74:1
+     respectively against the real (still-light) background, not the 8.30:1/
+     7.04:1 this block claims. This one rule is what makes those numbers real. */
+  html,
+  body {
+    background: #0d0e12;
+    color: #e8e8ea;
+  }
+
   /* 1.01:1 -> 8.30:1. The `footer a[href="#/admin"]` pin above is (0,1,1) and
      still wins here, so the hidden Admin link is unaffected. */
   footer,
