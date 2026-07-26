@@ -336,6 +336,14 @@
 }
 .vlab-foot a { color: var(--v-accent); text-decoration: none; }
 .vlab-foot a:hover { text-decoration: underline; }
+/* The /admin entry point (SiteHome's vlab-foot): present on every look because
+   the shared App.jsx footer never renders on the chromeless "/", but quiet —
+   it takes the footer's own muted tone rather than the theme accent, so it
+   reads as a maintainer's door rather than a public nav item. (Written as
+   `a.vlab-foot__admin` so it out-specifies the `.vlab-foot a` accent rule
+   above — a bare `.vlab-foot__admin` would lose the cascade to it.) */
+.vlab-foot a.vlab-foot__admin { color: var(--v-faint); }
+.vlab-foot a.vlab-foot__admin:hover { color: var(--v-muted); }
 
 /* --- ⌘K hint + command palette (inherit the active theme's tokens) -------- */
 .vlab-kbd-hint {

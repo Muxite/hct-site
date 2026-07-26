@@ -65,7 +65,25 @@ export function AdminProvider({ children }) {
 
   async function signIn(email) {
     if (MOCK) throw new Error("Sign-in isn't available in this offline preview build.");
-    const { error } = await getClient().auth.signInWithOtp({ email });
+    const { error } = await getClient().auth.signInWithOtp({
+      email,
+      options: {
+        // Supabase defaults to `shouldCreateUser: true`, which would make this
+        // form an open endpoint: anyone could type any address and have
+        // Supabase send them a real email and create a junk `auth.users` row
+        // (an email-relay / quota-drain vector, even though RLS means such a
+        // user could never actually be an admin). The lab's single admin
+        // account is seeded by hand, so sign-in never needs to create one.
+        shouldCreateUser: false,
+        // Without this the magic link lands on the site root, which renders
+        // the chromeless homepage — the admin would have to know to type
+        // #/admin back in by hand. Built from the current pathname rather
+        // than a bare origin so it keeps working if the app is ever served
+        // from a sub-path. Must also be listed under Supabase Auth's
+        // redirect-URL allowlist.
+        emailRedirectTo: `${window.location.origin}${window.location.pathname}#/admin`,
+      },
+    });
     if (error) throw error;
   }
 

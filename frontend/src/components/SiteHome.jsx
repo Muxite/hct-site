@@ -172,7 +172,14 @@ export default function SiteHome({ meta = {} }) {
           <Home />
           <footer>
             Copyright {new Date().getFullYear()} © Human Communication
-            Technologies Lab.
+            Technologies Lab.{" "}
+            {/* App.jsx's shared footer — the only other place this link
+                lives — never renders on "/" (the homepage is chromeless), so
+                without this the default landing page has no way to reach
+                /admin at all. Deliberately bare (no .footer-link): it
+                inherits the footer's own near-invisible colour, a low-key
+                entry point for the lab PI rather than a public nav item. */}
+            <a href="#/admin">Admin</a>
           </footer>
         </main>
       </div>
@@ -610,7 +617,13 @@ function Gallery({ data, onDataChange }) {
 
       <footer className="vlab-foot">
         <span>
-          © {new Date().getFullYear()} {meta.title || "HCT Lab"}
+          © {new Date().getFullYear()} {meta.title || "HCT Lab"}{" "}
+          {/* Same low-key /admin entry point Classic's footer carries: the
+              shared App.jsx footer never renders on the chromeless "/", so
+              each look that *is* the homepage has to offer its own. Uses the
+              muted `--v-faint` token (see .vlab-foot__admin in variants.css)
+              rather than the theme accent every other footer link gets. */}
+          <a className="vlab-foot__admin" href="#/admin">Admin</a>
         </span>
         <span className="vlab-foot__hint">Switch the site look at the top ↑</span>
       </footer>
