@@ -86,6 +86,23 @@ class FakeSupabase:
     def upsert(self, table, rows, *, on_conflict=None):
         rows = list(rows)
         self.calls.append(("upsert", table, rows, on_conflict))
+        live = self.data.setdefault(table, [])
+        for row in rows:
+            existing = None
+            if on_conflict:
+                existing = next(
+                    (r for r in live if r.get(on_conflict) == row.get(on_conflict)), None
+                )
+            if existing is not None:
+                existing.update(row)
+            else:
+                live.append(dict(row))
+        return len(rows)
+
+    def insert(self, table, rows):
+        rows = list(rows)
+        self.calls.append(("insert", table, rows))
+        self.data.setdefault(table, []).extend(dict(r) for r in rows)
         return len(rows)
 
     def replace(self, table, rows, *, key):
@@ -101,6 +118,15 @@ class FakeSupabase:
         new_rows = [r for r in rows if r.get(key) not in existing]
         self.data.setdefault(table, []).extend(new_rows)
         return len(new_rows)
+
+    def delete(self, table, *, params):
+        self.calls.append(("delete", table, dict(params)))
+        for col, filt in params.items():
+            if filt.startswith("eq."):
+                val = filt[len("eq.") :]
+                self.data[table] = [
+                    r for r in self.data.get(table, []) if str(r.get(col)) != val
+                ]
 
     def update(self, table, values, *, params):
         self.calls.append(("update", table, values, params))
@@ -208,9 +234,11 @@ def test_edit_person_writes_yaml_and_resyncs(env):
     text = paths["people"].read_text(encoding="utf-8")
     assert "Postdoc" in text
     assert "# people header — keep me" in text
-    # and the people table was re-synced (additive-only: Alice already exists,
-    # so her Supabase row is left as-is even though the YAML role just changed).
-    assert sb.calls_for("insert_missing", "people")
+    # The edit is pushed straight to Supabase (a forced upsert, not the bulk
+    # sync's fill-if-empty path) -- "role" is exactly the kind of presentational
+    # field a routine resync would otherwise leave alone, so it must land here.
+    direct = sb.calls_for("upsert", "people")
+    assert any(r.get("role") == "Postdoc" for _, _, rows, _ in direct for r in rows)
     people = {p.name: p for p in load_people_yaml(paths["people"])}
     assert people["Alice"].role == "Postdoc"
 
@@ -224,7 +252,7 @@ def test_edit_person_blank_name_rejected_no_write(env):
     )
     assert resp.status_code == 400
     assert paths["people"].read_text(encoding="utf-8") == before  # untouched
-    assert not sb.calls_for("insert_missing", "people")
+    assert not sb.calls_for("upsert", "people")
 
 
 def test_edit_person_bad_status_rejected(env):
@@ -236,7 +264,7 @@ def test_edit_person_bad_status_rejected(env):
     )
     assert resp.status_code == 400
     assert paths["people"].read_text(encoding="utf-8") == before
-    assert not sb.calls_for("insert_missing", "people")
+    assert not sb.calls_for("upsert", "people")
 
 
 def test_add_person(env):
@@ -248,7 +276,42 @@ def test_add_person(env):
     assert resp.status_code == 303
     names = [p.name for p in load_people_yaml(paths["people"])]
     assert names == ["Alice", "Bob", "Carol"]
-    assert sb.calls_for("insert_missing", "people")
+    # forced direct insert -- must land regardless of what the bulk sync would do.
+    added = sb.calls_for("insert", "people")
+    assert any(r.get("name") == "Carol" for _, _, rows in added for r in rows)
+
+
+def test_edit_research_tagline_pushed_directly(env):
+    _, client, sb, paths = env
+    resp = client.post(
+        "/t/research/edit?id=Brain2Speech",
+        data={"title": "Brain2Speech", "tagline": "A brand new tagline",
+              "link": "https://x/b2s/", "image": "", "kind": "current"},
+    )
+    assert resp.status_code == 303
+    direct = sb.calls_for("upsert", "research")
+    assert any(
+        r.get("tagline") == "A brand new tagline" and r.get("slug") == "brain2speech"
+        for _, _, rows, _ in direct for r in rows
+    )
+
+
+def test_edit_research_title_change_renames_the_slug(env):
+    _, client, sb, paths = env
+    # Editing the title changes its derived slug -- this is really a rename:
+    # the old Supabase row must go, not linger as a duplicate/ghost.
+    resp = client.post(
+        "/t/research/edit?id=Brain2Speech",
+        data={"title": "Brain-to-Speech II", "tagline": "BCIs and speech synthesis",
+              "link": "https://x/b2s/", "image": "", "kind": "current"},
+    )
+    assert resp.status_code == 303
+    deletes = sb.calls_for("delete", "research")
+    assert any(params == {"slug": "eq.brain2speech"} for _, _, params in deletes)
+    inserts = sb.calls_for("upsert", "research")
+    assert any(
+        r.get("slug") == "brain-to-speech-ii" for _, _, rows, _ in inserts for r in rows
+    )
 
 
 def test_add_duplicate_person_rejected(env):
@@ -267,7 +330,9 @@ def test_delete_person(env):
     assert resp.status_code == 303
     names = [p.name for p in load_people_yaml(paths["people"])]
     assert names == ["Alice"]
-    assert sb.calls_for("insert_missing", "people")
+    # forced direct delete -- must always remove the row, not depend on a
+    # subsequent bulk resync noticing Bob is gone from people.yaml.
+    assert sb.calls_for("delete", "people") == [("delete", "people", {"name": "eq.Bob"})]
 
 
 def test_publications_not_addable(env):

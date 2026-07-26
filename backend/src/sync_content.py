@@ -26,14 +26,22 @@ files dropped into the mounted inbox folder:
 Edit a file and re-run ``hct-manager sync-content``: list order becomes
 ``sort_order`` and validation is the normal Pydantic contract
 (:class:`~src.models.Person` / :class:`~src.models.ResearchProject`) — a
-typo'd status fails loudly instead of landing in the database. The sync is
-**non-destructive**, not a wholesale replace: ``people`` is additive-only (a
-name already in the table is left completely untouched, even if the YAML now
-disagrees with it — see :meth:`~src.supabase_client.SupabaseClient.insert_missing`),
-and ``research``'s ``tagline``/``summary``/``hero_image`` are only filled in
-when still empty, never overwritten. This is so an admin editing those tables
-directly (see the CMS work building on this) can never have their edits
-clobbered by a routine re-sync.
+typo'd status fails loudly instead of landing in the database.
+
+The bulk resync (``people``/``research``, driven by this file's YAML loaders)
+is **non-destructive in a specific sense**, not a wholesale replace: a name/
+slug newly present in the YAML is inserted, one no longer present is deleted
+(removing an entry and re-running the sync is a deliberate curation act —
+this is exactly ``replace()``'s old delete propagation, just diffed instead of
+a blind clear-then-reinsert), and for an entry present in both, structural/
+status fields (title, link, image, kind, sort_order, role, email, photo, ...)
+stay fully YAML-driven while a small presentational subset (``research``'s
+``tagline``/``summary``/``hero_image``) is only filled in while still empty,
+never overwritten — see :func:`_bulk_sync`. That subset is what a future admin
+CMS session can set directly in Supabase, so it must survive a routine,
+automated resync. An explicit single-row edit/delete through ``viewer.py``
+does *not* go through this bulk path at all — see its own direct Supabase
+calls, which always take effect.
 """
 
 from __future__ import annotations
@@ -193,10 +201,14 @@ def load_projects_yaml(
     return projects, links, membership
 
 
-# Presentational research/project fields that a later admin edit may set
-# directly in Supabase; a YAML re-sync must never overwrite them once they're
-# non-empty, so they're excluded from the main upsert and only "filled" while
-# still null (see _sync_research / _fill_if_empty).
+# Presentational fields a future admin CMS session may set directly in
+# Supabase; the bulk YAML resync must never overwrite them once non-empty --
+# see _bulk_sync / _fill_if_empty. Everything else (name/title identity,
+# link, image, kind, sort_order, role, email, photo, ...) stays fully
+# YAML-driven: that's the documented purpose of these files (e.g. flipping
+# someone to "alumni" or a project to "archived"), not something to protect
+# from the sync that exists specifically to apply it.
+_PEOPLE_FILL_FIELDS = ("role", "email", "photo", "bio")
 _RESEARCH_FILL_FIELDS = ("tagline", "summary", "hero_image")
 
 
@@ -225,25 +237,60 @@ def _fill_if_empty(
         )
 
 
-def _sync_research(supabase: Any, rows: list[dict[str, Any]]) -> int:
-    """Upsert ``research`` rows without ever overwriting an already-set
-    ``tagline``/``summary``/``hero_image``.
+def _bulk_sync(
+    supabase: Any,
+    table: str,
+    rows: list[dict[str, Any]],
+    *,
+    key: str,
+    fill_fields: tuple[str, ...],
+) -> int:
+    """Non-destructive bulk resync of ``table`` from a human-edited YAML file.
 
-    The main payload (keyed on ``slug``, which every row has via
-    :meth:`~src.models.ResearchProject.row`) omits those three columns
-    entirely, so a re-sync can freely update title/link/image/kind/sort_order
-    while leaving the presentational fields alone; a follow-up fill-if-empty
-    PATCH sets them only where still null. Returns the row count sent.
+    Diffs ``rows`` (freshly parsed from the YAML) against what's currently
+    live in ``table``: a ``key`` present in ``rows`` but not live gets
+    inserted; a ``key`` live but no longer present in ``rows`` gets deleted —
+    removing an entry from the YAML and re-running the bulk sync is a
+    deliberate curation act, so this restores the delete propagation
+    ``replace()`` used to provide (a purely-additive sync would otherwise
+    leave the row a permanent ghost, and viewer.py's edit/delete routes rely
+    on this exact resync to reach Supabase for bulk-file changes).
+
+    For a ``key`` present in both, everything except ``fill_fields`` goes
+    through a normal upsert (so status/order/link/etc. keep following the
+    YAML on every sync); ``fill_fields`` are only filled in where still null
+    (see :func:`_fill_if_empty`) -- never force-overwritten, so a value the
+    admin CMS set directly in Supabase survives a routine, automated resync.
+
+    (This helper is for the *bulk* YAML resync only. An explicit single-row
+    edit/add/delete through ``viewer.py`` bypasses it entirely and writes
+    straight to Supabase -- see that module's own insert/update/delete calls,
+    which always take effect regardless of what's already there.)
+
+    Returns the number of rows in ``rows`` (matches the old ``replace()``'s
+    "rows written" count, used for the CLI's summary line).
     """
 
-    payload = [
-        {k: v for k, v in row.items() if k not in _RESEARCH_FILL_FIELDS}
-        for row in rows
-    ]
-    n = supabase.upsert("research", payload, on_conflict="slug")
+    if not rows:
+        return 0
+    live_keys = {r.get(key) for r in supabase.select(table, columns=key)}
+    incoming_keys = {row.get(key) for row in rows}
+    for stale in sorted(live_keys - incoming_keys, key=str):
+        supabase.delete(table, params={key: f"eq.{stale}"})
+
+    payload = [{k: v for k, v in row.items() if k not in fill_fields} for row in rows]
+    n = supabase.upsert(table, payload, on_conflict=key)
     for row in rows:
-        _fill_if_empty(supabase, "research", "slug", row, _RESEARCH_FILL_FIELDS)
+        _fill_if_empty(supabase, table, key, row, fill_fields)
     return n
+
+
+def _sync_people(supabase: Any, rows: list[dict[str, Any]]) -> int:
+    return _bulk_sync(supabase, "people", rows, key="name", fill_fields=_PEOPLE_FILL_FIELDS)
+
+
+def _sync_research(supabase: Any, rows: list[dict[str, Any]]) -> int:
+    return _bulk_sync(supabase, "research", rows, key="slug", fill_fields=_RESEARCH_FILL_FIELDS)
 
 
 def _stamp_project_slugs(supabase: Any, membership: list[tuple[str, str]]) -> int:
@@ -329,11 +376,16 @@ def sync_content(
     and ``research_path`` is ignored. Otherwise the legacy ``research.yaml`` path
     is used and no project relationships are written.
 
-    Non-destructive: ``people`` is additive-only (:meth:`SupabaseClient.insert_missing`
-    — a name already present is left untouched), and ``research``'s
-    ``tagline``/``summary``/``hero_image`` are only filled in where still empty
-    (see :func:`_sync_research`). Everything else about a matched ``research``
-    row (title, link, image, kind, sort_order) does still update on every sync.
+    Non-destructive bulk resync for both tables (see :func:`_bulk_sync`): a
+    name/slug newly present in the YAML is inserted, one no longer present is
+    deleted (restoring ``replace()``'s delete propagation), and for a row
+    present in both, structural fields (title, link, image, kind, sort_order,
+    ...) keep following the YAML while a small presentational subset
+    (``people``'s role/email/photo/bio, ``research``'s
+    tagline/summary/hero_image) is only filled in where still empty, never
+    overwritten. This is the *bulk* path only -- ``viewer.py``'s single-row
+    edit/add/delete routes write straight to Supabase instead (see that
+    module), so an explicit maintainer action there always takes effect.
 
     Returns ``(people_written, research_written)``. Every file is parsed and
     validated *before* the first write, so a broken file never half-syncs.
@@ -346,7 +398,7 @@ def sync_content(
     else:
         research = load_research_yaml(research_path)
 
-    n_people = supabase.insert_missing("people", [p.row() for p in people], key="name")
+    n_people = _sync_people(supabase, [p.row() for p in people])
     if use_projects:
         n_research = _sync_research(supabase, [p.row() for p in projects])
         supabase.replace("project_people", [l.row() for l in links], key="project_slug")

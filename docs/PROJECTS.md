@@ -135,8 +135,12 @@ Sequenced so all the no-API work lands first (the key is off):
   (consistent with "Supabase is the contract").
 - **`description` retirement**: kept until `summary_plain` is populated
   everywhere, then dropped.
-- **`sync-content` is fill-if-empty for `tagline`/`summary`/`hero_image`**: a
-  re-sync only sets these once they're still null server-side, so after the
-  first sync a `viewer.py` YAML edit to `research.tagline` (its only
-  YAML-backed field among the three) silently stops landing — accepted, since
-  the point is that an admin's value must never be clobbered by stale YAML.
+- **`hct-manager sync-content`'s *bulk* resync is fill-if-empty for
+  `tagline`/`summary`/`hero_image`** (and the analogous `people`
+  `role`/`email`/`photo`/`bio`): a routine re-sync of `people.yaml`/
+  `research.yaml`/`projects.yaml` only sets these once they're still null
+  server-side, so it can never clobber a value an admin sets directly through
+  a future browser CMS. This applies to the CLI/automated resync path only —
+  `viewer.py`'s own edit/add/delete routes push straight to Supabase with a
+  forced single-row write (see `_push_yaml_edit` et al. in `viewer.py`), so an
+  explicit maintainer edit through that tool always lands, `tagline` included.

@@ -7,9 +7,18 @@ viewer over the five tables (``publications``, ``timeline``, ``people``,
 
 Edit routing follows the project's "YAML is the source of truth" rule:
 
-* ``people`` / ``research`` / ``site_content`` are **written back to their YAML
-  files** and re-synced, so the viewer and ``hct-manager sync-content`` always
-  agree (and a later sync won't clobber the edit).
+* ``people`` / ``research`` are **written back to their YAML files** (so the
+  viewer and ``hct-manager sync-content`` always agree on the record) *and*
+  pushed straight to Supabase with a forced, single-row insert/update/delete
+  (see ``_push_yaml_edit``/``_push_yaml_add``/``_push_yaml_delete``) — an
+  explicit maintainer edit here always takes effect, it never depends on the
+  bulk sync's fill-if-empty rule (see ``src.sync_content._bulk_sync``). The
+  bulk resync still runs afterward too, only to propagate side effects of the
+  YAML rewrite (like other rows' ``sort_order`` shifting), not to make the
+  edit itself land.
+* ``site_content`` is written back to its YAML file and re-synced via the
+  bulk (additive-only) path — there's no per-row identity to key a forced
+  single-row write off, unlike people/research.
 * ``publications`` / ``timeline`` are AI/CV-generated, so their editable fields
   (``description``/``venue``/``link``/``bibtex`` and ``blurb``/``date_label``)
   are written **straight to Supabase** with the secret key. Note a later
@@ -283,7 +292,48 @@ def create_app(
         supabase.upsert(table, [updated], on_conflict=spec["pk"])
 
     def _resync_people_research():
+        """Bulk-resync people/research from their (just-rewritten) YAML files.
+
+        This alone is NOT how an explicit edit/add/delete below reaches
+        Supabase (see the direct _push_yaml_* calls) -- it runs *afterward*,
+        purely to propagate side effects of the YAML rewrite that a single-row
+        push doesn't cover, namely other rows' ``sort_order`` shifting when an
+        item is inserted/removed from the middle of the list. It's always
+        safe to also run: the bulk sync's insert/delete/fill-if-empty diff
+        (see ``sync_content._bulk_sync``) is idempotent against a row that was
+        just pushed directly -- the fill-if-empty PATCH server-side ``is.null``
+        filter simply no-ops once the direct push already set that field.
+        """
         sync_mod.sync_content(people_path, research_path, supabase=supabase)
+
+    def _row_key(table: str, item) -> tuple[str, str]:
+        """(key column, key value) Supabase actually keys this table by --
+        ``name`` for people (immutable identity), ``slug`` for research
+        (derived from title, so it can change under an edit)."""
+        if table == "people":
+            return "name", item.name
+        return "slug", item.with_slug().slug
+
+    def _push_yaml_edit(table, old_item, new_item) -> None:
+        """Force this one row's new values straight into Supabase -- an
+        explicit maintainer edit must always take effect, independent of the
+        bulk sync's fill-if-empty rule for automated re-syncs."""
+        key, old_key_val = _row_key(table, old_item)
+        _, new_key_val = _row_key(table, new_item)
+        if old_key_val != new_key_val:
+            # Identity changed (e.g. a research title edit changes its
+            # derived slug) -- this is really a rename: drop the stale row.
+            supabase.delete(table, params={key: f"eq.{old_key_val}"})
+        supabase.upsert(table, [new_item.row()], on_conflict=key)
+
+    def _push_yaml_add(table, item) -> None:
+        supabase.insert(table, [item.row()])
+
+    def _push_yaml_delete(table, item) -> None:
+        """Force-remove this one row -- an explicit delete must always take
+        effect, not depend on a subsequent bulk resync noticing it's gone."""
+        key, key_val = _row_key(table, item)
+        supabase.delete(table, params={key: f"eq.{key_val}"})
 
     def _apply_yaml_edit(table, pk_value, form):
         if table == "site_content":
@@ -292,9 +342,12 @@ def create_app(
         idx = _index_of(items, pkattr, pk_value)
         if idx is None:
             raise ValueError(f"no {table} row with {pkattr}={pk_value!r}")
-        items[idx] = _build_item(table, form, sort_order=idx)
+        old_item = items[idx]
+        new_item = _build_item(table, form, sort_order=idx)
+        items[idx] = new_item
         _reindex(items)
         _dump(table, path, items)
+        _push_yaml_edit(table, old_item, new_item)
         _resync_people_research()
 
     def _apply_yaml_add(table, form):
@@ -305,13 +358,18 @@ def create_app(
         items.append(new)
         _reindex(items)
         _dump(table, path, items)
+        _push_yaml_add(table, new)
         _resync_people_research()
 
     def _apply_yaml_delete(table, pk_value):
         items, path, pkattr = _yaml_items(table)
+        idx = _index_of(items, pkattr, pk_value)
+        old_item = items[idx] if idx is not None else None
         kept = [it for it in items if str(getattr(it, pkattr)) != str(pk_value)]
         _reindex(kept)
         _dump(table, path, kept)
+        if old_item is not None:
+            _push_yaml_delete(table, old_item)
         _resync_people_research()
 
     def _apply_site_edit(pk_value, form):

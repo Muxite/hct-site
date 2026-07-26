@@ -113,6 +113,29 @@ class SupabaseClient:
         except httpx.HTTPError as exc:
             raise SupabaseError(f"update {table} failed: {exc}") from exc
 
+    def delete(self, table: str, *, params: dict[str, str]) -> None:
+        """Delete rows in ``table`` matching ``params`` (PostgREST filters).
+
+        Forced and single-purpose — always removes whatever matches. Used both
+        by the bulk YAML resync's stale-row cleanup (a name/slug no longer in
+        the YAML — see ``sync_content._bulk_sync``) and by an explicit
+        single-row delete (e.g. ``viewer.py``). Like ``update``, ``params``
+        must be non-empty; PostgREST refuses an unfiltered DELETE (see
+        ``delete_all`` for "every row").
+        """
+
+        if not params:
+            raise SupabaseError("delete requires a non-empty filter (params)")
+        try:
+            resp = self._client.delete(
+                f"{self._base}/{table}",
+                params=params,
+                headers=self._headers(prefer="return=minimal"),
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise SupabaseError(f"delete from {table} failed: {exc}") from exc
+
     def delete_all(self, table: str, *, key: str) -> None:
         """Delete every row in ``table`` (filter on ``key`` is not null).
 

@@ -211,10 +211,11 @@ def test_sync_content_command(monkeypatch, capsys, tmp_path):
     ])
     assert rc == 0
     assert "2 people" in capsys.readouterr().out
-    # people + site_content are additive-only (insert_missing); research still
-    # upserts (title/link/etc. keep updating, only tagline/summary/hero_image
-    # are fill-if-empty -- see test_sync_content.py for that behavior).
-    assert sb.inserted_missing["people"][1]["kind"] == "alumni"
+    # people + research both go through the non-destructive bulk sync (insert
+    # new / delete stale / fill-if-empty on the presentational subset, see
+    # test_sync_content.py for the full behavior); site_content stays
+    # purely additive via insert_missing.
+    assert sb.upserted["people"][1]["kind"] == "alumni"
     assert sb.upserted["research"][1]["kind"] == "archived"
     keys = {r["key"] for r in sb.inserted_missing["site_content"]}
     assert "vision" in keys and "site_meta" in keys

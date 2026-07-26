@@ -172,3 +172,28 @@ def test_update_patches_matching_rows():
 def test_update_requires_filter():
     with pytest.raises(SupabaseError, match="non-empty filter"):
         _client(lambda req: httpx.Response(200)).update("publications", {"x": 1}, params={})
+
+
+def test_delete_sends_filtered_delete():
+    seen = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["method"] = req.method
+        seen["url"] = str(req.url)
+        return httpx.Response(200, json={})
+
+    sb = _client(handler)
+    sb.delete("people", params={"name": "eq.Old Student"})
+    assert seen["method"] == "DELETE"
+    assert "name=eq." in seen["url"] and "Old" in seen["url"]
+
+
+def test_delete_requires_filter():
+    with pytest.raises(SupabaseError, match="non-empty filter"):
+        _client(lambda req: httpx.Response(200)).delete("people", params={})
+
+
+def test_delete_raises_on_http_error():
+    sb = _client(lambda req: httpx.Response(400, json={"message": "bad"}))
+    with pytest.raises(SupabaseError):
+        sb.delete("people", params={"name": "eq.X"})

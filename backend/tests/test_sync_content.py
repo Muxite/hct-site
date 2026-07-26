@@ -43,29 +43,83 @@ research:
 
 
 class FakeSupabase:
-    def __init__(self):
+    """Records every call *and* keeps a ``live`` dict simulating what's
+    actually in Supabase, so the diff-based bulk sync's insert/delete/
+    fill-if-empty behavior can be proven end-to-end (not just "the right
+    method was called with the right args" -- the ``live`` state changes
+    only where the real PostgREST semantics say it should).
+    """
+
+    def __init__(self, live: dict[str, list[dict]] | None = None):
+        self.live: dict[str, list[dict]] = {
+            t: [dict(r) for r in rows] for t, rows in (live or {}).items()
+        }
         self.replaced: dict[str, tuple[list[dict], str]] = {}
         self.upserted: dict[str, tuple[list[dict], str | None]] = {}
         self.inserted_missing: dict[str, tuple[list[dict], str]] = {}
+        self.deletes: list[tuple[str, dict]] = []
         self.updates: list[tuple[str, dict, dict]] = []
+
+    def select(self, table, *, columns="*", params=None):
+        rows = self.live.get(table, [])
+        if columns == "*":
+            return [dict(r) for r in rows]
+        cols = [c.strip() for c in columns.split(",")]
+        return [{c: r.get(c) for c in cols} for r in rows]
 
     def replace(self, table, rows, *, key):
         rows = list(rows)
         self.replaced[table] = (rows, key)
+        self.live[table] = [dict(r) for r in rows]
         return len(rows)
 
     def upsert(self, table, rows, *, on_conflict=None):
         rows = list(rows)
         self.upserted[table] = (rows, on_conflict)
+        live = self.live.setdefault(table, [])
+        for row in rows:
+            existing = None
+            if on_conflict:
+                existing = next(
+                    (r for r in live if r.get(on_conflict) == row.get(on_conflict)), None
+                )
+            if existing is not None:
+                existing.update(row)  # merge-duplicates: only sent columns change
+            else:
+                live.append(dict(row))
         return len(rows)
 
     def insert_missing(self, table, rows, *, key):
         rows = list(rows)
         self.inserted_missing[table] = (rows, key)
-        return len(rows)
+        existing_keys = {r.get(key) for r in self.live.get(table, [])}
+        new_rows = [r for r in rows if r.get(key) not in existing_keys]
+        self.live.setdefault(table, []).extend(dict(r) for r in new_rows)
+        return len(new_rows)
+
+    def delete(self, table, *, params):
+        self.deletes.append((table, dict(params)))
+        for col, filt in params.items():
+            if filt.startswith("eq."):
+                val = filt[len("eq.") :]
+                self.live[table] = [
+                    r for r in self.live.get(table, []) if str(r.get(col)) != val
+                ]
 
     def update(self, table, values, *, params):
-        self.updates.append((table, values, params))
+        self.updates.append((table, dict(values), dict(params)))
+        eq_col = eq_val = null_col = None
+        for col, filt in params.items():
+            if filt == "is.null":
+                null_col = col
+            elif filt.startswith("eq."):
+                eq_col, eq_val = col, filt[len("eq.") :]
+        for row in self.live.get(table, []):
+            if eq_col is not None and str(row.get(eq_col)) != eq_val:
+                continue
+            if null_col is not None and row.get(null_col) is not None:
+                continue  # real PostgREST server-side is.null filter
+            row.update(values)
 
 
 PROJECTS_YAML = """\
@@ -216,8 +270,12 @@ def test_sync_content_without_projects_uses_research(tmp_path):
     assert "research" not in sb.replaced
     assert "project_people" not in sb.replaced
     # RESEARCH_YAML sets a tagline for the two current projects -> each gets a
-    # fill-if-empty PATCH; Old Project sets none, so no PATCH for it.
-    assert sb.updates == [
+    # fill-if-empty PATCH; Old Project sets none, so no PATCH for it. (people
+    # gets its own fill-if-empty PATCHes for role/email/photo now too -- see
+    # test_sync_content_people_bulk_sync_inserts_deletes_and_fills_only_empty
+    # -- so filter by table here.)
+    research_updates = [u for u in sb.updates if u[0] == "research"]
+    assert research_updates == [
         ("research", {"tagline": "BCIs and 3D biomechanical articulatory speech synthesis"},
          {"slug": "eq.brain2speech", "tagline": "is.null"}),
         ("research", {"tagline": "Teaching and learning experiences with video"},
@@ -225,7 +283,7 @@ def test_sync_content_without_projects_uses_research(tmp_path):
     ]
 
 
-def test_sync_content_people_is_insert_missing_not_replace(tmp_path):
+def test_sync_content_people_upserts_via_bulk_sync_not_replace(tmp_path):
     sb = FakeSupabase()
     n_people, n_research = sync_content(
         _write(tmp_path, "people.yaml", PEOPLE_YAML),
@@ -233,10 +291,56 @@ def test_sync_content_people_is_insert_missing_not_replace(tmp_path):
         supabase=sb,
     )
     assert (n_people, n_research) == (3, 3)
-    people_rows, people_key = sb.inserted_missing["people"]
-    assert people_key == "name"
+    people_rows, on_conflict = sb.upserted["people"]
+    assert on_conflict == "name"
     assert people_rows[1]["kind"] == "alumni"
     assert "people" not in sb.replaced
+    assert "people" not in sb.inserted_missing
+
+
+def test_sync_content_people_bulk_sync_inserts_deletes_and_fills_only_empty(tmp_path):
+    """The three-way bulk-sync contract for `people`, proven against live state:
+    a new YAML name is inserted, a name dropped from the YAML is deleted (delete
+    propagation), and for a name present in both, structural fields (kind,
+    sort_order) always follow the YAML while the presentational subset
+    (role/email/photo/bio) is only filled in where still empty -- an
+    already-set value survives untouched.
+    """
+    sb = FakeSupabase(
+        live={
+            "people": [
+                {
+                    "name": "Sidney Fels", "role": "Old role should survive",
+                    "email": "old@example.com", "photo": None, "bio": None,
+                    "kind": "alumni", "sort_order": 9,
+                },
+                {
+                    "name": "Departed Person", "role": "Ex", "email": None,
+                    "photo": None, "bio": None, "kind": "alumni", "sort_order": 1,
+                },
+            ]
+        }
+    )
+    n_people, _ = sync_content(
+        _write(tmp_path, "people.yaml", PEOPLE_YAML),
+        _write(tmp_path, "research.yaml", RESEARCH_YAML),
+        supabase=sb,
+    )
+    assert n_people == 3
+    live_names = {p["name"] for p in sb.live["people"]}
+    # No longer in people.yaml -> deleted (restores replace()'s old propagation).
+    assert "Departed Person" not in live_names
+    assert sb.deletes == [("people", {"name": "eq.Departed Person"})]
+    # New names inserted.
+    assert {"Past Student", "Implicit Current"} <= live_names
+    sidney = next(p for p in sb.live["people"] if p["name"] == "Sidney Fels")
+    # Structural fields always follow the YAML (this is *why* people.yaml
+    # exists -- e.g. flipping someone to alumni when they graduate).
+    assert sidney["kind"] == "current"
+    assert sidney["sort_order"] == 0
+    # Presentational fields already set survive a routine resync untouched.
+    assert sidney["role"] == "Old role should survive"
+    assert sidney["email"] == "old@example.com"
 
 
 def test_sync_content_research_upsert_excludes_fill_fields(tmp_path):
@@ -283,6 +387,50 @@ def test_sync_content_projects_fills_only_empty_fields(tmp_path):
     ]
 
 
+def test_sync_content_research_bulk_sync_inserts_deletes_and_fills_only_empty(tmp_path):
+    """Same three-way contract as people, for `research` (legacy research.yaml
+    path): insert new, delete a slug no longer present, and for a matched
+    slug, structural fields (title/kind/sort_order/link) always follow the
+    YAML while tagline/summary/hero_image are fill-if-empty only.
+    """
+    sb = FakeSupabase(
+        live={
+            "research": [
+                {
+                    "title": "Brain2Speech (stale title)", "slug": "brain2speech",
+                    "tagline": "Existing tagline should survive", "description": None,
+                    "summary": None, "link": None, "image": None, "hero_image": None,
+                    "kind": "archived", "sort_order": 9,
+                },
+                {
+                    "title": "Retired Project", "slug": "retired-project", "tagline": None,
+                    "description": None, "summary": None, "link": None, "image": None,
+                    "hero_image": None, "kind": "archived", "sort_order": 1,
+                },
+            ]
+        }
+    )
+    _, n_research = sync_content(
+        _write(tmp_path, "people.yaml", PEOPLE_YAML),
+        _write(tmp_path, "research.yaml", RESEARCH_YAML),
+        supabase=sb,
+    )
+    assert n_research == 3
+    live_slugs = {r["slug"] for r in sb.live["research"]}
+    # No longer in research.yaml -> deleted.
+    assert "retired-project" not in live_slugs
+    assert sb.deletes == [("research", {"slug": "eq.retired-project"})]
+    assert {"videx", "old-project"} <= live_slugs
+    b2s = next(r for r in sb.live["research"] if r["slug"] == "brain2speech")
+    # Structural fields always follow research.yaml.
+    assert b2s["title"] == "Brain2Speech"
+    assert b2s["kind"] == "current"
+    assert b2s["sort_order"] == 0
+    assert b2s["link"] == "https://hct.ece.ubc.ca/brain2speech/"
+    # tagline already set -> untouched by the fill-if-empty PATCH.
+    assert b2s["tagline"] == "Existing tagline should survive"
+
+
 def test_sync_content_validates_before_writing(tmp_path):
     sb = FakeSupabase()
     good = _write(tmp_path, "people.yaml", PEOPLE_YAML)
@@ -293,6 +441,7 @@ def test_sync_content_validates_before_writing(tmp_path):
     assert sb.replaced == {}
     assert sb.upserted == {}
     assert sb.inserted_missing == {}
+    assert sb.deletes == []
     assert sb.updates == []
 
 
