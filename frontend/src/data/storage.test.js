@@ -38,10 +38,28 @@ test("uploadToSiteMedia uploads to the public bucket with upsert and returns the
   const file = { name: "a.jpg" };
   const url = await uploadToSiteMedia(file, "people/a.jpg", client);
 
-  assert.equal(url, "https://x/site-media/people/a.jpg");
+  assert.match(url, /^https:\/\/x\/site-media\/people\/a\.jpg\?v=\d+$/);
   assert.deepEqual(calls[0], ["from", SITE_MEDIA_BUCKET]);
   assert.deepEqual(calls[1], ["upload", "people/a.jpg", file, { upsert: true }]);
   assert.deepEqual(calls[2], ["getPublicUrl", "people/a.jpg"]);
+});
+
+test("uploadToSiteMedia returns a different URL each time so a replaced image isn't served from cache", async () => {
+  // The storage path is deterministic, so replacing a .jpg with a .jpg gives
+  // back the identical public URL — the DB value wouldn't change, React would
+  // render the same src, and the CDN's 1h cacheControl would keep serving the
+  // old bytes. The `?v=` stamp is what breaks that.
+  const opts = { publicUrl: "https://x/site-media/people/a.jpg" };
+  const first = await uploadToSiteMedia({ name: "a.jpg" }, "people/a.jpg", fakeStorageClient(opts).client);
+  await new Promise((r) => setTimeout(r, 2));
+  const second = await uploadToSiteMedia({ name: "a.jpg" }, "people/a.jpg", fakeStorageClient(opts).client);
+  assert.notEqual(first, second);
+});
+
+test("uploadToSiteMedia keeps an existing query string when stamping the URL", async () => {
+  const { client } = fakeStorageClient({ publicUrl: "https://x/site-media/a.jpg?token=abc" });
+  const url = await uploadToSiteMedia({ name: "a.jpg" }, "a.jpg", client);
+  assert.match(url, /^https:\/\/x\/site-media\/a\.jpg\?token=abc&v=\d+$/);
 });
 
 test("uploadToSiteMedia throws on a Storage error without calling getPublicUrl", async () => {

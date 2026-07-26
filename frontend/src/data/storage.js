@@ -20,15 +20,31 @@ export const CV_UPLOAD_PATH = "cv/current.docx";
 /**
  * Upload `file` into the public `site-media` bucket at `path` (e.g.
  * "people/jane-doe.jpg"), overwriting any existing object at that path, and
- * return its public URL. Building `path` (slug, extension) is the caller's
- * job — this just performs the upload + URL lookup.
+ * return its public URL with a cache-busting `?v=` stamp. Building `path`
+ * (slug, extension) is the caller's job — this just performs the upload +
+ * URL lookup.
+ *
+ * The `?v=` stamp is not cosmetic. Paths here are deterministic
+ * (`people/<slug>.<ext>`), so replacing a photo with another file of the same
+ * extension — the common case — yields the byte-identical public URL the row
+ * already stores. supabase-js's upload defaults to `cacheControl: '3600'`, so
+ * without a changing query param the DB value wouldn't change, React would
+ * re-render the same `src`, and the CDN/browser would keep serving the old
+ * image for up to an hour. Stamping the URL makes every replacement a
+ * distinct `src` that misses cache immediately, while still resolving to the
+ * same underlying object (Storage ignores unknown query params).
  */
 export async function uploadToSiteMedia(file, path, client = getClient()) {
   const bucket = client.storage.from(SITE_MEDIA_BUCKET);
   const { error } = await bucket.upload(path, file, { upsert: true });
   if (error) throw error;
   const { data } = bucket.getPublicUrl(path);
-  return data.publicUrl;
+  return withCacheBust(data.publicUrl);
+}
+
+/** Append a `v=<timestamp>` param, preserving any query string already there. */
+function withCacheBust(url, now = Date.now()) {
+  return `${url}${url.includes("?") ? "&" : "?"}v=${now}`;
 }
 
 /**
