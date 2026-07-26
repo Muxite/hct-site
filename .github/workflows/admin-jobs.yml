@@ -24,9 +24,28 @@ on:
 permissions:
   contents: read
 
+# One admin job at a time, repo-wide. The only thing stopping a double-click,
+# a page refresh, or a second browser tab from starting a second full
+# `hct-manager run` was AdminPage.jsx's client-side `busy` flag — which is not
+# a guard at all once a second client is involved. Two concurrent runs would
+# spend OpenRouter tokens twice against the project's budget ceiling *and*
+# write to the same Supabase tables at the same time.
+#
+# `cancel-in-progress: false` deliberately: a second dispatch queues behind the
+# first and then runs, rather than killing a pipeline that may be halfway
+# through upserting publications. The cost is a short wait, not a torn write.
+concurrency:
+  group: admin-jobs
+  cancel-in-progress: false
+
 jobs:
   run:
     runs-on: ubuntu-latest
+    # Well clear of a normal CV-sync run (a few minutes: parse + per-entry LLM
+    # fallback + upsert), but low enough that a wedged LLM/Supabase call fails
+    # the run instead of burning the 6h GitHub default while holding the
+    # concurrency slot above and blocking every later dispatch.
+    timeout-minutes: 20
     env:
       # Config.data_dir (backend/src/config.py) defaults to two directories
       # above config.py itself, which only resolves to <repo>/backend/data
