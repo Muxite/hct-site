@@ -322,7 +322,12 @@ create unique index if not exists people_name_key on public.people (name);
 -- legitimately touch every other column, e.g. sync_content.py) never trip
 -- this guard -- it only fires for edits made through a logged-in Supabase
 -- Auth session (i.e. the admin UI). `search_path` is pinned per the
--- function-search-path-mutable advisory.
+-- function-search-path-mutable advisory. `publications.updated_at` is
+-- bookkeeping, not admin-editable content, so it's excluded from the
+-- column-diff check entirely and unconditionally stamped to `now()` by the
+-- trigger -- an admin update that also sends `updated_at` (a natural thing
+-- for a client to do) is silently corrected rather than rejected.
+-- `research` has no analogous timestamp column, so it needs no such carve-out.
 create or replace function public.research_admin_guard()
 returns trigger
 language plpgsql
@@ -367,7 +372,6 @@ begin
        or new.link is distinct from old.link
        or new.bibtex is distinct from old.bibtex
        or new.description is distinct from old.description
-       or new.updated_at is distinct from old.updated_at
        or new.project_slug is distinct from old.project_slug
        or new.citation_count is distinct from old.citation_count
        or new.concepts is distinct from old.concepts
@@ -376,6 +380,7 @@ begin
       raise exception 'publications_admin_guard: admin update may only change summary_plain, summary_abstract, summary_par, image';
     end if;
   end if;
+  new.updated_at := now();
   return new;
 end;
 $$;
