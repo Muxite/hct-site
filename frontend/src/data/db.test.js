@@ -6,6 +6,8 @@ import {
   getPublicationsPage,
   getPublicationsBySlugs,
   isMissingSamplesTable,
+  isMockMode,
+  getAdminStatus,
 } from "./db.js";
 
 function samplesClient(result) {
@@ -18,6 +20,25 @@ function samplesClient(result) {
     },
   };
   return { from: () => builder };
+}
+
+/** A `select().eq().maybeSingle()` chain — the shape `getAdminStatus` uses. */
+function singleClient(result) {
+  const calls = [];
+  const builder = {
+    select(cols) {
+      calls.push(["select", cols]);
+      return builder;
+    },
+    eq(col, val) {
+      calls.push(["eq", col, val]);
+      return builder;
+    },
+    maybeSingle() {
+      return Promise.resolve(result);
+    },
+  };
+  return { client: { from: () => builder }, calls };
 }
 
 /** Records the calls made against the query builder, resolving to `result`. */
@@ -112,4 +133,51 @@ test("getPublicationsBySlugs filters by the given slugs", async () => {
     calls.find((c) => c[0] === "in"),
     ["in", "slug", ["a", "b"]],
   );
+});
+
+// --- isMockMode --------------------------------------------------------------
+// The guard `context/AdminContext.jsx` must check before any `supabase.auth.*`
+// call. AdminContext itself is a .jsx component with no render harness in this
+// repo (no jsdom/@testing-library — see db.test.js/feedbackTarget.test.js for
+// the established "fake minimal DOM" pattern used instead), so this is the
+// piece of the mock-mode guard that's actually exercised at the unit level;
+// that AdminContext wires every auth call behind it is verified by reading
+// the source, not by an automated test.
+test("isMockMode is true when VITE_MOCK is truthy", () => {
+  assert.equal(isMockMode({ VITE_MOCK: "1" }), true);
+  assert.equal(isMockMode({ VITE_MOCK: true }), true);
+});
+
+test("isMockMode is false when VITE_MOCK is unset or empty", () => {
+  assert.equal(isMockMode({}), false);
+  assert.equal(isMockMode({ VITE_MOCK: "" }), false);
+  assert.equal(isMockMode({ VITE_MOCK: undefined }), false);
+});
+
+// --- getAdminStatus ------------------------------------------------------------
+test("getAdminStatus returns false without querying when there is no user id", async () => {
+  const { client, calls } = singleClient({ data: null, error: null });
+  assert.equal(await getAdminStatus(null, client), false);
+  assert.equal(await getAdminStatus(undefined, client), false);
+  assert.equal(calls.length, 0);
+});
+
+test("getAdminStatus returns true when the admins row is visible", async () => {
+  const { client, calls } = singleClient({ data: { user_id: "u1" }, error: null });
+  assert.equal(await getAdminStatus("u1", client), true);
+  assert.deepEqual(
+    calls.find((c) => c[0] === "eq"),
+    ["eq", "user_id", "u1"],
+  );
+});
+
+test("getAdminStatus returns false when RLS hides the row (signed-in non-admin)", async () => {
+  const { client } = singleClient({ data: null, error: null });
+  assert.equal(await getAdminStatus("u2", client), false);
+});
+
+test("getAdminStatus still throws a non-RLS Supabase error", async () => {
+  const error = { code: "500", message: "boom" };
+  const { client } = singleClient({ data: null, error });
+  await assert.rejects(getAdminStatus("u3", client), error);
 });

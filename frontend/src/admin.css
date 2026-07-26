@@ -1,0 +1,95 @@
+/* /admin — auth foundation only (login/logout + status). Imported only from
+   AdminPage.jsx, so — like feedback.css — it's absent from every bundle
+   except the one lazy chunk that actually needs it. Sits inside the shared
+   chrome (App.jsx's <main>/<Header>), so unlike feedback.css this reuses the
+   page's light/dark background rather than carrying its own opaque one. */
+
+.admin-page {
+  width: 100%;
+  max-width: 480px;
+}
+
+.admin-login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  margin-top: 1em;
+  max-width: 320px;
+}
+
+.admin-login label {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.admin-login input[type="email"] {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  color: inherit;
+  background: #fff;
+}
+
+.admin-btn {
+  align-self: flex-start;
+  font: inherit;
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fafafa;
+  color: inherit;
+  cursor: pointer;
+}
+
+.admin-btn:disabled {
+  color: #999;
+  cursor: default;
+}
+
+.admin-btn--primary {
+  background: #1a56db;
+  border-color: #1a56db;
+  color: #fff;
+}
+
+.admin-status {
+  margin: 1em 0;
+}
+
+.admin-status--done {
+  color: #187a3c;
+}
+
+.admin-status--error {
+  color: #c00;
+}
+
+.admin-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 1em 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .admin-login input[type="email"] {
+    background: #1a1b20;
+    border-color: #333;
+  }
+
+  .admin-btn {
+    background: #16171b;
+    border-color: #333;
+  }
+
+  .admin-status--done {
+    color: #7ee2a8;
+  }
+
+  .admin-status--error {
+    color: #ff9b9b;
+  }
+}

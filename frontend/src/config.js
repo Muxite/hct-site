@@ -13,6 +13,7 @@ export const TABLES = {
   projectPeople: "project_people",
   siteContent: "site_content",
   samples: "paper_samples",
+  admins: "admins",
 };
 
 // site_content keys the page renders. `site_meta` holds the header/nav; the rest

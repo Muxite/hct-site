@@ -1,0 +1,98 @@
+/**
+ * Admin auth foundation — session detection, `admins`-table status, and an
+ * `editMode` flag. Login/logout UI lives in components/AdminPage.jsx; content
+ * editing itself is a later task (`editMode` is just a flag other components
+ * will read from once that lands).
+ *
+ * Reuses the single Supabase client singleton from data/db.js (never builds
+ * a second `GoTrueClient`) and must no-op entirely under `VITE_MOCK` — the
+ * mock client (data/mockClient.js) has no `.auth` at all, so every
+ * `client.auth.*` call below is gated on `isMockMode()` first.
+ */
+import { createContext, useContext, useEffect, useState } from "react";
+import { getClient, getAdminStatus, isMockMode } from "../data/db.js";
+
+const MOCK = isMockMode();
+
+const AdminContext = createContext(null);
+
+export function AdminProvider({ children }) {
+  // `loading` covers the initial getSession() round trip so AdminPage can
+  // show a neutral "checking…" state instead of flashing "logged out" first.
+  // A mock build never has a session to check, so it starts already settled.
+  const [session, setSession] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(!MOCK);
+  const [editMode, setEditMode] = useState(false); // never persisted — always boots false
+
+  useEffect(() => {
+    if (MOCK) return; // offline preview build: no real auth backend to check
+
+    let alive = true;
+    const client = getClient();
+
+    async function applySession(nextSession) {
+      if (!alive) return;
+      setSession(nextSession);
+      if (!nextSession?.user) {
+        setIsAdmin(false);
+        setEditMode(false);
+        setLoading(false);
+        return;
+      }
+      try {
+        const admin = await getAdminStatus(nextSession.user.id, client);
+        if (alive) setIsAdmin(admin);
+      } catch {
+        // A denied/failed admins lookup just means "not an admin", not a
+        // reason to break the rest of the page.
+        if (alive) setIsAdmin(false);
+      }
+      if (alive) setLoading(false);
+    }
+
+    client.auth.getSession().then(({ data }) => applySession(data.session));
+
+    const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => {
+      applySession(nextSession);
+    });
+
+    return () => {
+      alive = false;
+      subscription?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  async function signIn(email) {
+    if (MOCK) throw new Error("Sign-in isn't available in this offline preview build.");
+    const { error } = await getClient().auth.signInWithOtp({ email });
+    if (error) throw error;
+  }
+
+  async function signOut() {
+    if (MOCK) return;
+    await getClient().auth.signOut();
+    setEditMode(false);
+  }
+
+  const value = {
+    mock: MOCK,
+    loading,
+    session,
+    user: session?.user ?? null,
+    isAdmin,
+    editMode,
+    setEditMode,
+    signIn,
+    signOut,
+  };
+
+  return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
+}
+
+/** Read the current admin/session state. Must be called under `<AdminProvider>`. */
+export function useAdmin() {
+  const ctx = useContext(AdminContext);
+  if (!ctx) throw new Error("useAdmin() must be called within an <AdminProvider>");
+  return ctx;
+}

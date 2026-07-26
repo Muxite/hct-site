@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { getSiteContent } from "./data/db.js";
 import Header from "./components/Header.jsx";
+import { AdminProvider } from "./context/AdminContext.jsx";
 import { matchRoute, useHashPath } from "./lib/router.js";
 
 // Each route is its own lazy chunk — visiting the homepage never pulls in the
@@ -13,6 +14,7 @@ const ProjectsPage = lazy(() => import("./components/ProjectsPage.jsx"));
 const PaperPage = lazy(() => import("./components/PaperPage.jsx"));
 const PapersPage = lazy(() => import("./components/PapersPage.jsx"));
 const Samples = lazy(() => import("./components/Samples.jsx"));
+const AdminPage = lazy(() => import("./components/AdminPage.jsx"));
 
 const ROUTES = [
   ["/", "home"],
@@ -21,6 +23,7 @@ const ROUTES = [
   ["/papers", "papers-index"],
   ["/papers/:slug", "paper"],
   ["/samples", "samples"],
+  ["/admin", "admin"],
   // Back-compat: the design gallery is now the homepage's built-in selector.
   ["/variants", "home"],
 ];
@@ -34,6 +37,7 @@ function Route({ path, meta }) {
   if (match.value === "papers-index") return <PapersPage />;
   if (match.value === "paper") return <PaperPage slug={match.params.slug} />;
   if (match.value === "samples") return <Samples />;
+  if (match.value === "admin") return <AdminPage />;
   return null;
 }
 
@@ -70,20 +74,26 @@ export default function App() {
   }
 
   return (
-    <main>
-      <Header meta={meta} />
-      {error && (
-        <div className="state state--error">
-          Couldn’t reach the lab database — {String(error.message || error)}
-        </div>
-      )}
-      <Suspense fallback={<div className="state">Loading…</div>}>
-        <Route path={path} meta={meta} />
-      </Suspense>
-      <footer>
-        Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.{" "}
-        <a href="#/" className="footer-link">Home →</a>
-      </footer>
-    </main>
+    <AdminProvider>
+      <main>
+        <Header meta={meta} />
+        {error && (
+          <div className="state state--error">
+            Couldn’t reach the lab database — {String(error.message || error)}
+          </div>
+        )}
+        <Suspense fallback={<div className="state">Loading…</div>}>
+          <Route path={path} meta={meta} />
+        </Suspense>
+        <footer>
+          Copyright {new Date().getFullYear()} © Human Communication Technologies Lab.{" "}
+          <a href="#/" className="footer-link">Home →</a>{" "}
+          {/* Deliberately bare (no .footer-link) — inherits the footer's own
+              near-invisible color instead of the bright "Home →" blue. A
+              low-key entry point for the lab PI, not a public nav item. */}
+          <a href="#/admin">Admin</a>
+        </footer>
+      </main>
+    </AdminProvider>
   );
 }

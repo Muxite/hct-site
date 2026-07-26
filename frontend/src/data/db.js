@@ -11,13 +11,24 @@ import { createMockClient } from "./mockClient.js";
 
 let _client = null;
 
+/**
+ * True under an offline `VITE_MOCK` build. Pulled out as a pure function (env
+ * injectable) so it's unit-testable, and so `context/AdminContext.jsx` can
+ * reuse the exact same check `getClient()` uses below rather than re-deriving
+ * its own — the mock client has no `.auth`, so every `supabase.auth.*` call
+ * must be skipped whenever this is true.
+ */
+export function isMockMode(env = import.meta.env) {
+  return Boolean(env.VITE_MOCK);
+}
+
 /** Build (and cache) the supabase-js client from the Vite env config. */
 export function getClient() {
   if (_client) return _client;
   // Offline mode: a VITE_MOCK build serves a snapshot of the live Supabase data
   // with no network or keys (the snapshot itself is a lazy chunk — see
   // mockClient.js — so a normal build's bundle never includes it).
-  if (import.meta.env.VITE_MOCK) {
+  if (isMockMode()) {
     _client = createMockClient();
     return _client;
   }
@@ -171,6 +182,24 @@ export async function getPaperSamples(client = getClient()) {
   if (error && isMissingSamplesTable(error)) return [];
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Whether `userId` belongs to the `admins` allowlist (see context/AdminContext.jsx).
+ * The table's RLS policy only lets a user read their *own* row
+ * (`user_id = auth.uid()`), so a signed-in non-admin's query isn't an error —
+ * it just comes back with no row, which resolves to `false` here rather than
+ * throwing.
+ */
+export async function getAdminStatus(userId, client = getClient()) {
+  if (!userId) return false;
+  const { data, error } = await client
+    .from(TABLES.admins)
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 }
 
 /** All site_content rows as a { key: value } map (one round trip). */

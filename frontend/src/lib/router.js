@@ -5,10 +5,26 @@
  */
 import { useEffect, useState } from "react";
 
+// supabase-js's default (implicit) auth flow lands a magic-link sign-in's
+// session tokens directly in `location.hash` (e.g.
+// `#access_token=...&type=magiclink`, sometimes appended after our own route
+// like `#/admin&access_token=...`) — the same slot this router reads paths
+// from. That's not one of our routes, so treat it as "/" rather than a bogus
+// 404; supabase-js parses `window.location.href` for the tokens itself
+// (independent of this router) and clears the hash once it's done.
+const AUTH_CALLBACK_HASH = /(^|&)(access_token|error|error_description)=/;
+
+/** Pure: derive the router path from a raw `location.hash` value (leading
+ * "#" optional, no query string). Exported mainly so the auth-callback guard
+ * above is unit-testable without a `window` global. */
+export function pathFromHash(hash) {
+  const raw = String(hash || "").replace(/^#/, "");
+  if (AUTH_CALLBACK_HASH.test(raw)) return "/";
+  return raw.split("?")[0] || "/";
+}
+
 function currentPath() {
-  const hash = typeof window !== "undefined" ? window.location.hash : "";
-  const path = hash.replace(/^#/, "") || "/";
-  return path.split("?")[0];
+  return pathFromHash(typeof window !== "undefined" ? window.location.hash : "");
 }
 
 /** Subscribe to the current hash path; re-renders on navigation. */
