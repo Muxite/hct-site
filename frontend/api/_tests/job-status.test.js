@@ -99,7 +99,13 @@ test("a bad token -> 403, and GitHub is never called", async () => {
 });
 
 test("a non-integer run_id is rejected before any GitHub call", async () => {
-  for (const runId of ["abc", "12; DROP TABLE", 1.5, -3, 0, "", "  ", true, {}, [], "1e400"]) {
+  // The tail of this list is what `Number()` alone would have waved through:
+  // "0x10" as 16, "+1"/"1." as 1, "1e3" as 1000 — each a *different* run id
+  // than the caller wrote. Only plain decimal digits are accepted.
+  for (const runId of [
+    "abc", "12; DROP TABLE", 1.5, -3, 0, "", "  ", true, {}, [], "1e400",
+    "0x10", "+1", "1.", "1e3", "0b11", "1,000", " 5 0 1 ", "501abc", "Infinity",
+  ]) {
     const gh = fakeGithub();
     const res = await handleJobStatus(
       post({ supabase_access_token: "admin-token", run_id: runId }),

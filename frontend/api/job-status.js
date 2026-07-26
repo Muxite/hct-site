@@ -29,13 +29,25 @@ export async function handleJobStatus(request, deps = {}) {
 
     // `run_id` reaches a request path, so it is accepted only as a positive
     // integer (or absent) — never as an arbitrary string.
+    //
+    // The decimal-digits regex is the actual gate, not `Number()`: `Number()`
+    // happily accepts "0x10" (-> 16), "+1", "1_000"-adjacent forms and
+    // "0b11", none of which are what a caller writing a GitHub run id means,
+    // and all of which would silently reach GitHub as some *other* run. The
+    // input must read as a plain decimal integer before it is converted;
+    // surrounding whitespace is still tolerated (a trimmed " 501 " is
+    // unambiguous), and `Number.isSafeInteger` then rejects ids past 2^53.
     const rawRunId = body.run_id;
     let runId = null;
     if (rawRunId !== undefined && rawRunId !== null) {
       if (typeof rawRunId !== "number" && typeof rawRunId !== "string") {
         throw new HttpError(400, "run_id must be a positive integer.");
       }
-      runId = typeof rawRunId === "number" ? rawRunId : Number(rawRunId.trim());
+      const digits = String(rawRunId).trim();
+      if (!/^\d+$/.test(digits)) {
+        throw new HttpError(400, "run_id must be a positive integer.");
+      }
+      runId = Number(digits);
       if (!Number.isSafeInteger(runId) || runId <= 0) {
         throw new HttpError(400, "run_id must be a positive integer.");
       }
