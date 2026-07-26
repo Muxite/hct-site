@@ -90,23 +90,15 @@
    OS scheme, both a real improvement over ~2.17:1 given the same
    "opacity-dimmed white text" treatment.
 
-   Dark OS scheme measured ~6:1 during verification, but don't read that as
-   this rule being better in the dark — it's inflated by a separate,
-   pre-existing bug this task didn't touch: `@media (prefers-color-scheme:
-   dark) { .admin-btn { background: #16171b; ... } }` below shares
-   `.admin-btn--primary`'s exact specificity (0,1,0) and is declared later, so
-   in real dark-OS rendering it wins and *every* primary button — enabled or
-   disabled — loses its blue fill to that dark gray, not just this disabled
-   state. Confirmed via `getComputedStyle` on both a disabled ("Upload & sync
-   now") and enabled ("Save exemplar") primary button in dark OS scheme: both
-   report `backgroundColor: rgb(22, 23, 27)`, never the declared `#1a56db`.
-   The ~6:1 this rule measures at is against that (accidental) near-black
-   fill, not the intended blue one — if that separate bug were fixed, this
-   rule's own real dark-mode number would drop back down to roughly the
-   ~3.65:1 hand-computed against the *intended* blue fill. Flagging for a
-   follow-up task rather than fixing here since it's out of scope (it isn't
-   disabled-state-specific and reaches every primary button in the base,
-   non-`.vlab` chrome).
+   The ~6:1 this rule once measured in dark OS scheme was never real: it was
+   taken against an accidental near-black fill, because `@media
+   (prefers-color-scheme: dark) { .admin-btn { background: #16171b; ... } }`
+   below ties `.admin-btn--primary`'s exact specificity (0,1,0) and is
+   declared later, so it used to win and strip the blue fill off *every*
+   primary button, enabled or disabled. That is fixed in the media query below
+   (`.admin-btn.admin-btn--primary`, (0,2,0), restates the blue), so this rule
+   now dims white text over the intended `#1a56db` in both schemes and
+   measures ~3.65:1 — the same disabled-state treatment, not a regression.
 
    Deliberately targets the compound `.admin-btn.admin-btn--primary` — every
    primary button in the app already carries both classes together (see the
@@ -149,6 +141,20 @@
   .admin-btn {
     background: #16171b;
     border-color: #333;
+  }
+
+  /* …but only the *secondary* ones. The rule above ties `.admin-btn--primary`'s
+     (0,1,0) specificity and is declared later, so on its own it repaints every
+     primary button near-black under OS-dark and the primary/secondary
+     distinction the rest of the app leans on disappears. Restated here at the
+     compound `.admin-btn.admin-btn--primary` (0,2,0) — every primary button
+     carries both classes (see the JSX call sites) — so it wins by specificity
+     rather than by source order, the same trick
+     `.admin-btn.admin-btn--primary:disabled` uses above. `color: #fff` is not
+     restated: nothing in this media query competes for it. */
+  .admin-btn.admin-btn--primary {
+    background: #1a56db;
+    border-color: #1a56db;
   }
 
   .admin-status--done {
