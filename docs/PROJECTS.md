@@ -145,7 +145,12 @@ Sequenced so all the no-API work lands first (the key is off):
   own edit/add/delete routes push straight to Supabase with a forced
   single-row write (see `_push_yaml_edit` et al. in `viewer.py`), so an
   explicit maintainer edit through that tool always lands, `tagline`
-  included.
+  included. That forced write is deliberately *narrow*: it sends only the
+  columns that form actually edits (`viewer.py`'s `_push_columns` — the
+  table's `editable` set plus its key and `sort_order`), never a full row.
+  A full row would carry the fields the form has no input for — `summary`,
+  `hero_image`, `bio` — as nulls and wipe whatever the browser CMS wrote,
+  re-opening this same hole at the single-row seam.
 - **Known gap: `people.kind` (current/alumni status) is NOT in the
   fill-if-empty set**, unlike the fields above — `sync_content.py`'s
   `_PEOPLE_FILL_FIELDS` always force-upserts it from `people.yaml`, matching

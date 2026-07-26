@@ -296,6 +296,62 @@ def test_edit_research_tagline_pushed_directly(env):
     )
 
 
+def test_edit_research_does_not_null_columns_the_form_never_touched(env):
+    # `summary`/`hero_image` are written by the browser admin CMS, and this
+    # form has no field for either. A forced *full-row* push would carry them
+    # as null and wipe them -- the exact clobber sync_content's fill-if-empty
+    # rule exists to prevent, at a different seam. The push must be narrowed
+    # to the columns the form actually owns.
+    _, client, sb, _ = env
+    live = next(r for r in sb.data["research"] if r["slug"] == "brain2speech")
+    live.update(summary="A body an admin wrote.", hero_image="https://x/hero.jpg")
+    resp = client.post(
+        "/t/research/edit?id=Brain2Speech",
+        data={"title": "Brain2Speech", "tagline": "A brand new tagline",
+              "link": "https://x/b2s/", "image": "", "kind": "current"},
+    )
+    assert resp.status_code == 303
+    # The forced single-row push is the first research upsert (the bulk
+    # resync that runs after it is sync_content's, already non-destructive).
+    _, _, rows, _ = sb.calls_for("upsert", "research")[0]
+    assert set(rows[0]) == {"slug", "title", "tagline", "link", "image", "kind", "sort_order"}
+    after = next(r for r in sb.data["research"] if r["slug"] == "brain2speech")
+    assert after["tagline"] == "A brand new tagline"  # the edit still lands
+    assert after["summary"] == "A body an admin wrote."
+    assert after["hero_image"] == "https://x/hero.jpg"
+
+
+def test_edit_person_does_not_null_the_admin_written_bio(env):
+    # Same hole on the people side: `bio` is AI/CMS-written and has no field
+    # on this form, so the forced push must not carry it as null.
+    _, client, sb, _ = env
+    live = next(r for r in sb.data["people"] if r["name"] == "Alice")
+    live["bio"] = "A bio the admin wrote in the browser."
+    resp = client.post(
+        "/t/people/edit?id=Alice",
+        data={"name": "Alice", "role": "Postdoc", "email": "alice@x.edu",
+              "photo": "alice.png", "kind": "current"},
+    )
+    assert resp.status_code == 303
+    _, _, rows, _ = sb.calls_for("upsert", "people")[0]  # the forced single-row push
+    assert set(rows[0]) == {"name", "role", "email", "photo", "kind", "sort_order"}
+    after = next(r for r in sb.data["people"] if r["name"] == "Alice")
+    assert after["role"] == "Postdoc"  # the edit still lands
+    assert after["bio"] == "A bio the admin wrote in the browser."
+
+
+def test_add_person_pushes_only_the_forms_own_columns(env):
+    _, client, sb, _ = env
+    resp = client.post(
+        "/t/people/add",
+        data={"name": "Carol", "role": "MASc", "email": "", "photo": "", "kind": "current"},
+    )
+    assert resp.status_code == 303
+    rows = [r for _, _, rs in sb.calls_for("insert", "people") for r in rs]
+    assert rows and all("bio" not in r for r in rows)
+    assert rows[0]["name"] == "Carol" and rows[0]["sort_order"] == 2
+
+
 def test_edit_research_title_change_renames_the_slug(env):
     _, client, sb, paths = env
     # Editing the title changes its derived slug -- this is really a rename:

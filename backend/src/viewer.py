@@ -12,10 +12,13 @@ Edit routing follows the project's "YAML is the source of truth" rule:
   pushed straight to Supabase with a forced, single-row insert/update/delete
   (see ``_push_yaml_edit``/``_push_yaml_add``/``_push_yaml_delete``) — an
   explicit maintainer edit here always takes effect, it never depends on the
-  bulk sync's fill-if-empty rule (see ``src.sync_content._bulk_sync``). The
-  bulk resync still runs afterward too, only to propagate side effects of the
-  YAML rewrite (like other rows' ``sort_order`` shifting), not to make the
-  edit itself land.
+  bulk sync's fill-if-empty rule (see ``src.sync_content._bulk_sync``). That
+  forced write is *narrow*, though: it only carries the columns this form
+  actually edits (see ``_push_columns``), so fields it never asks about —
+  ``people.bio``, ``research.summary``/``hero_image``, whatever the browser
+  admin CMS wrote — are left untouched rather than nulled. The bulk resync
+  still runs afterward too, only to propagate side effects of the YAML rewrite
+  (like other rows' ``sort_order`` shifting), not to make the edit itself land.
 * ``site_content`` is written back to its YAML file and re-synced via the
   bulk (additive-only) path — there's no per-row identity to key a forced
   single-row write off, unlike people/research.
@@ -108,6 +111,37 @@ TABLE_SPEC: dict[str, dict[str, Any]] = {
 
 # Render these as <textarea> in edit forms (long prose / JSON), the rest as <input>.
 TEXTAREA_FIELDS = {"description", "bibtex", "blurb", "value", "text"}
+
+# The Supabase key column for each YAML-backed table -- ``name`` for people
+# (immutable identity), ``slug`` for research (derived from the title, so it
+# can change under an edit).
+_KEY_COLUMN = {"people": "name", "research": "slug"}
+
+
+def _push_columns(table: str) -> set[str]:
+    """The columns the forced single-row push (``_push_yaml_edit``/``_add``) is
+    allowed to write.
+
+    ``_build_item`` only fills in the fields the edit form actually asks for,
+    so a full ``item.row()`` (a ``model_dump``) also carries every *other*
+    column as ``None`` -- ``people.bio``, ``research.description``/
+    ``summary``/``hero_image``. Upserting that whole shape would write those
+    nulls over whatever the browser admin CMS had put there, which is exactly
+    the destruction ``sync_content``'s fill-if-empty rule
+    (``_PEOPLE_FILL_FIELDS`` / ``_RESEARCH_FILL_FIELDS``) exists to prevent,
+    just at a different seam. So the push sends only what this form genuinely
+    owns: the editable columns, the row's key, and ``sort_order`` (which the
+    viewer renumbers itself on every add/edit/delete).
+    """
+
+    return set(TABLE_SPEC[table]["editable"]) | {_KEY_COLUMN[table], "sort_order"}
+
+
+def _push_payload(table: str, item: Any) -> dict[str, Any]:
+    """``item.row()`` narrowed to :func:`_push_columns` -- see its docstring."""
+
+    allowed = _push_columns(table)
+    return {k: v for k, v in item.row().items() if k in allowed}
 
 
 def _clean(v: Any) -> str | None:
@@ -308,26 +342,33 @@ def create_app(
 
     def _row_key(table: str, item) -> tuple[str, str]:
         """(key column, key value) Supabase actually keys this table by --
-        ``name`` for people (immutable identity), ``slug`` for research
-        (derived from title, so it can change under an edit)."""
+        see :data:`_KEY_COLUMN`. The value is derived from the item (research's
+        slug follows the title, so it can change under an edit)."""
         if table == "people":
-            return "name", item.name
-        return "slug", item.with_slug().slug
+            return _KEY_COLUMN[table], item.name
+        return _KEY_COLUMN[table], item.with_slug().slug
 
     def _push_yaml_edit(table, old_item, new_item) -> None:
         """Force this one row's new values straight into Supabase -- an
         explicit maintainer edit must always take effect, independent of the
-        bulk sync's fill-if-empty rule for automated re-syncs."""
+        bulk sync's fill-if-empty rule for automated re-syncs.
+
+        Only the columns this form owns are sent (:func:`_push_columns`): a
+        full row would carry the fields the form never asked about as nulls
+        and wipe them."""
         key, old_key_val = _row_key(table, old_item)
         _, new_key_val = _row_key(table, new_item)
         if old_key_val != new_key_val:
             # Identity changed (e.g. a research title edit changes its
             # derived slug) -- this is really a rename: drop the stale row.
             supabase.delete(table, params={key: f"eq.{old_key_val}"})
-        supabase.upsert(table, [new_item.row()], on_conflict=key)
+        supabase.upsert(table, [_push_payload(table, new_item)], on_conflict=key)
 
     def _push_yaml_add(table, item) -> None:
-        supabase.insert(table, [item.row()])
+        # Same narrowed shape as the edit push: the columns the form doesn't
+        # own are simply absent, so the DB's own defaults (null) apply rather
+        # than this write asserting a value for them.
+        supabase.insert(table, [_push_payload(table, item)])
 
     def _push_yaml_delete(table, item) -> None:
         """Force-remove this one row -- an explicit delete must always take
